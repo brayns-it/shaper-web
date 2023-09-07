@@ -1,0 +1,8 @@
+.config
+bin
+obj
+var
+Properties
+apps
+ShaperWeb.csproj.user
+appsettings*.json
