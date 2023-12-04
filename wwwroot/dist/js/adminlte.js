@@ -1804,7 +1804,7 @@
         $__default["default"]('html').css('height', 'auto');
       } else {
         var boxHeight = $selector.height();
-
+          
         if ($body.css(this._config.panelAutoHeightMode) !== boxHeight) {
           $body.css(this._config.panelAutoHeightMode, boxHeight);
         }

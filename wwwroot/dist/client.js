@@ -9,7 +9,8 @@ for (var i = 0; i < 230; i++)
 boundary += '",'
 
 var client_status = {
-    'pages': []
+    'pages': [],
+    'dataset': null
 }
 
 function uuidv4() {
@@ -46,7 +47,7 @@ function rpc_post(request, callback) {
         xhr: function () {
             var xhr = $.ajaxSettings.xhr()
             xhr.onreadystatechange = function () {
-                if (xhr.readyState == 3) {
+                if (xhr.readyState >= 3) {
                     while (true) {
                         var p = xhr.response.indexOf(boundary, start)
                         if (p == -1)
@@ -124,8 +125,8 @@ function dispatch_chunk(obj) {
             return
         }
 
-        if (obj['action'] == 'data') {
-            handle_data(obj['value'])
+        if ((obj['action'] == 'dataset') || (obj['action'] == 'datarow')) {
+            handle_data(obj)
             return
         }
 
@@ -165,47 +166,45 @@ function handle_properties(obj) {
  *
  */
 
+function get_schema_field(page, codename) {
+    for (var n in page['schema'])
+        if (page['schema'][n]['codename'] == codename)
+            return page['schema'][n];
+    return null;
+}
+
 function handle_data(obj) {
     var page = get_pagebyid(obj['pageid'])
     if (!page)
         return
 
     var dom = $('#' + obj['pageid'])
-    if (dom.length == 0)
+    if (dom.length == 0) {
+        if (obj["action"] == 'dataset')
+            client_status['dataset'] = obj;
         return
-
-    var rows = []
-    var frows = []
-    var base = obj['type']
-    if (base == 'dataset') {
-        rows = obj[base]
-        frows = obj['f' + base]
-    } else {
-        rows = [
-            obj[base]
-        ]
-        frows = [
-            obj['f' + base]
-        ]
     }
+
+    if (obj["action"] == 'dataset')
+        client_status['dataset'] = null;    // data received before loading
 
     var data_grid = []
 
-    for (var j = 0; j < rows.length; j++) {
+    for (var j = 0; j < obj["data"].length; j++) {
         var row_grid = {}
 
         for (var i = 0; i < page['schema'].length; i++) {
             var codename = page['schema'][i]['codename']
             var hasFormat = page['schema'][i]['hasformat']
-            var value = rows[j][i]
+            var value = obj["data"][j][i]
             if (hasFormat)
-                value = frows[j][i]
+                value = obj["fdata"][j][i]
 
             if (j == 0) {
                 var ctl = dom.find('[bind-codename="' + codename + '"]')
                 var type = ctl.prop("ctl-type")
 
-                if (type == 'Cell') {
+                if (type == 'Field') {
                     ctl.val(value)
                     ctl.prop('x-value', value)
                 }
@@ -219,7 +218,7 @@ function handle_data(obj) {
         data_grid.push(row_grid)
     }
 
-    if (base == 'dataset') {
+    if (obj["action"] == 'dataset') {
         dom.find('[is-grid="1"]').each(function (i, e) {
             if ($(e).prop('page-id') == obj['pageid']) {
                 var g = $(e).find('#grid')
@@ -359,6 +358,9 @@ function run_page(obj) {
             render_controls_modal(obj)
 
         }
+
+        if (client_status['dataset'])
+            handle_data(client_status['dataset'])
     }
 
     if ($('body').prop('pageType') == '') {
@@ -475,7 +477,7 @@ function render_controls_content(page) {
     // recurse controls
     for (var c in page['controls']) {
         var ctl = page['controls'][c]
-
+        
         if (ctl['controlType'] == 'AppCenter')
             render_appcenter(ctl, page)
 
@@ -494,8 +496,7 @@ function render_controls_content(page) {
  */
 
 function render_contentarea_content(ctl, page) {
-    var wrap = $('.content-wrapper')
-    var fluid = wrap.find('#container')
+    var container = $('#container')
 
     var carea = $(`
         <div class="row">
@@ -509,8 +510,8 @@ function render_contentarea_content(ctl, page) {
     carea.prop('is-content', true)
     carea.attr('id', page['id'])
     carea.find('#left-content').addClass('col-12')
-    fluid.append(carea)
-
+    container.append(carea)
+    
     var left = carea.find('#left-content')
 
     render_contentarea_controls(ctl, left, page)
@@ -1000,7 +1001,7 @@ function render_repeater_parent(ctl, parent, page) {
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
-        if (ctl2['controlType'] == 'Cell') {
+        if (ctl2['controlType'] == 'Field') {
             var f = {
                 name: ctl2['codename'],
                 title: ctl2['caption']
@@ -1051,16 +1052,22 @@ function render_group_parent(ctl, parent, page) {
         <div class="card card-light">
             <div class="card-header">
                 <h3 class="card-title"></h3>
-                <div class="card-tools">
-                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
-                        <i class="fas fa-minus"></i>
-                    </button>
-                </div>
             </div>
             <div class="card-body">
             </div>
         </div>
     `)
+
+    if (ctl['collapsible']) {
+        var tools = $(`
+            <div class="card-tools">
+                <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                    <i class="fas fa-minus"></i>
+                </button>
+            </div>
+        `)
+        grp.find('.card-header').append(tools)
+    }
 
     grp.appendTo(parent)
     grp.find('.card-title').html(ctl['caption'])
@@ -1069,40 +1076,57 @@ function render_group_parent(ctl, parent, page) {
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
-        if (ctl2['controlType'] == 'Cell')
-            render_field_parent(ctl2, body, page)
+        if (ctl2['controlType'] == 'Field')
+            render_field_parent(ctl2, body, page, ctl)
     }
 }
 
-function render_field_parent(ctl, parent, page) {
-    var newRow = true
-    var row = parent.children(':last-child')
-    if (row.length > 0) {
-        if (row.prop('ctl-count') == 1) {
-            newRow = false
-        }
+function render_select(ctl, parent, page, schema) {
+    var sel = $(`<select class="custom-select-sm form-control">`)
+
+    for (var i in schema['options']) {
+        var opt = $(`<option>`)
+        opt.attr('value', schema['options'][i]['value'])
+        opt.html(schema['options'][i]['caption'])
+        opt.appendTo(sel)
     }
 
-    if (newRow) {
-        row = $(`<div class="form-group row"></div>`)
-        row.css('margin-bottom', '8px')
-        row.appendTo(parent)
-        row.prop('ctl-count', 1)
-    } else {
-        row.prop('ctl-count', 2)
-    }
+    sel.attr('bind-codename', ctl['codename'])
+    sel.prop('ctl-type', ctl['controlType'])
+    sel.prop('control-id', ctl['id'])
+    sel.prop('page-id', page['id'])
 
-    var label = $(`<label class="col-sm-1 col-form-label font-weight-normal"></label>`)
-    label.html(ctl['caption'] + ':')
-    label.appendTo(row)
+    sel.on('change', function (e) {
+        if ($(e.target).prop('x-value') === $(e.target).val())
+            return
 
-    var field = $(`
-        <div class="col-sm-5">
-            <input class="form-control form-control-sm">
-        </div>
-    `)
+        rpc_post({
+            'type': 'request',
+            'objectid': $(e.target).prop('page-id'),
+            'method': 'ControlInvoke',
+            'arguments': {
+                'controlid': $(e.target).prop('control-id'),
+                'method': 'Validate',
+                'args': {
+                    'value': $(e.target).val(),
+                    'parseValue': true
+                }
+            }
+        }, function (r) {
+            if (!r)
+                $(e.target).val($(e.target).prop('x-value'))
+        })
+    })
 
-    var inp = field.find('input')
+    sel.appendTo(parent)
+}
+
+function render_input(ctl, parent, page, schema) {
+    var inp = $(`<input class="form-control form-control-sm">`)
+
+    if (ctl['inputType'] == 'Password')
+        inp.attr('type', 'password')
+
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
     inp.prop('control-id', ctl['id'])
@@ -1129,7 +1153,58 @@ function render_field_parent(ctl, parent, page) {
         })
     })
 
-    field.appendTo(row)
+    inp.appendTo(parent)
+}
+
+function render_field_parent(ctl, parent, page, ctlParent) {
+    var newRow = true
+    var row = parent.children(':last-child')
+    if (row.length > 0) {
+        if (row.prop('ctl-count') == 1) {
+            newRow = false
+        }
+    }
+
+    if (newRow) {
+        row = $(`<div>`)
+        row.addClass("row")
+        row.css('margin-bottom', '8px')
+        row.appendTo(parent)
+        row.prop('ctl-count', 1)
+    } else {
+        row.prop('ctl-count', 2)
+    }
+    
+    var grp = $('<div class="form-group">')
+    if (ctlParent['labelOrientation'] == 'Horizontal')
+        grp.addClass("row")
+    if (ctlParent['fieldPerRow'] == 'One')
+        grp.addClass("col-sm-12")
+    else
+        grp.addClass("col-sm-6")
+    grp.appendTo(row)
+
+    var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
+    if (ctlParent['labelOrientation'] == 'Horizontal')
+        label.addClass('col-sm-4')
+    else
+        label.addClass('col-sm-12')
+    label.html(ctl['caption'] + ':')
+    label.appendTo(grp)
+
+    var field = $(`<div />`)
+    if (ctlParent['labelOrientation'] == 'Horizontal')
+        field.addClass('col-sm-8')
+    else
+        field.addClass('col-sm-12')
+
+    var schema = get_schema_field(page, ctl['codename'])
+    if (schema["fieldType"] == "OPTION")
+        render_select(ctl, field, page, schema)
+    else
+        render_input(ctl, field, page, schema)
+
+    field.appendTo(grp)
 }
 
 function render_text_parent(ctl, parent, page) {
@@ -1224,7 +1299,7 @@ function render_action_actionarea_content(ctl, page) {
 
     var mnu = $("#menu-left")
     mnu.append(li)
-    
+
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
@@ -1545,6 +1620,7 @@ function load_login(callback) {
 
         if (callback) callback()
 
+        $('body').css('height', '');
         $('body').Layout('init')
     })
 }
