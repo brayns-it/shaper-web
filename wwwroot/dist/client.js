@@ -10,7 +10,9 @@ boundary += '",'
 
 var client_status = {
     'pages': [],
-    'dataset': null
+    'dataset': null,
+    'modals': [],
+    'last_focus': null
 }
 
 function uuidv4() {
@@ -121,7 +123,7 @@ function dispatch_chunk(obj) {
 
     if (obj['type'] == 'send') {
         if (obj['action'] == 'closepage') {
-            close_page(obj['value']['pageid'])
+            close_page(obj['pageid'])
             return
         }
 
@@ -141,9 +143,7 @@ function dispatch_chunk(obj) {
         }
 
         if (obj['action'] == 'reload') {
-            var loc = window.location
-            loc.hash = ''
-            window.location = loc
+            location.reload();
             return
         }
     }
@@ -156,7 +156,7 @@ function dispatch_chunk(obj) {
 
 function handle_properties(obj) {
     if (obj['property'] == 'caption') {
-        document.title = client_status['init']['name'] + ' | ' + obj['value']
+        document.title = obj['value']
         $('.content-wrapper').find('.content-header').find('[title-id="' + obj['pageid'] + '"]').html(obj['value'])
     }
 }
@@ -195,21 +195,28 @@ function handle_data(obj) {
 
         for (var i = 0; i < page['schema'].length; i++) {
             var codename = page['schema'][i]['codename']
+            var fieldType = page['schema'][i]['fieldType']
             var hasFormat = page['schema'][i]['hasformat']
             var value = obj["data"][j][i]
-            if (hasFormat)
-                value = obj["fdata"][j][i]
+            var fValue = obj["fdata"][j][i]
+            if (!hasFormat) fValue = value
 
             if (j == 0) {
                 var ctl = dom.find('[bind-codename="' + codename + '"]')
-                var type = ctl.prop("ctl-type")
+                var tag = ctl.prop("tagName").toUpperCase()
 
-                if (type == 'Field') {
+                if ((tag == 'INPUT') && (fieldType == 'BOOLEAN')) {
+                    ctl.prop('checked', value)
+                    ctl.prop('x-value', value)
+
+                } else if (tag == 'SELECT') {
                     ctl.val(value)
                     ctl.prop('x-value', value)
+
+                } else {
+                    ctl.val(fValue)
+                    ctl.prop('x-value', fValue)
                 }
-                else if (type == 'Text')
-                    ctl.html(value)
             }
 
             row_grid[codename] = value
@@ -220,7 +227,7 @@ function handle_data(obj) {
 
     if (obj["action"] == 'dataset') {
         dom.find('[is-grid="1"]').each(function (i, e) {
-            if ($(e).prop('page-id') == obj['pageid']) {
+            if ($(e).attr('page-id') == obj['pageid']) {
                 var g = $(e).find('#grid')
                 if (g.length > 0) {
                     g.jsGrid({ data: data_grid })
@@ -233,7 +240,7 @@ function handle_data(obj) {
 
     } else if (obj['selectedrow'] > -1) {
         dom.find('[is-grid="1"]').each(function (i, e) {
-            if ($(e).prop('page-id') == obj['pageid']) {
+            if ($(e).attr('page-id') == obj['pageid']) {
                 var g = $(e).find('#grid')
                 if (g.length > 0) {
                     var data = g.jsGrid('option', 'data')
@@ -250,6 +257,46 @@ function handle_data(obj) {
  *  >>> PAGE RENDERER
  *
  */
+
+function is_shortcut(evt) {
+    if (evt.ctrlKey) return true
+    if (evt.altKey) return true
+    if ((evt.code >= "F1") && (evt.code <= "F12")) return true
+    if (evt.code == "Enter") return true
+    if (evt.code == "Escape") return true
+    return false
+}
+
+function handle_shortcut(evt) {
+    if (client_status['modals'].length > 0) {
+        if (evt.code == 'Escape') {
+            client_status['modals'][client_status['modals'].length - 1].modal('hide')
+            evt.preventDefault()
+            return false
+        }
+        return;
+    }
+
+    if (client_status['pages'].length == 0) return
+
+    var page = client_status['pages'][client_status['pages'].length - 1]
+
+    if (evt.ctrlKey || evt.altKey || is_shortcut(evt)) {
+        for (var k in page["shortcuts"]) {
+            if (evt.ctrlKey && (k.indexOf("Ctrl+") == -1)) continue
+            if (evt.altKey && (k.indexOf("Alt+") == -1)) continue
+            if (evt.shiftKey && (k.indexOf("Shift+") == -1)) continue
+            if (k.indexOf(evt.code) == -1) continue
+
+            var c = $('[control-id="' + page["shortcuts"][k] + '"]').first()
+            if (c.length > 0) {
+                action_trigger(c)
+                evt.preventDefault()
+                return false
+            }
+        }
+    }
+}
 
 function get_pageindexbyid(pageid) {
     for (var k = 0; k < client_status['pages'].length; k++) {
@@ -274,7 +321,7 @@ function pop_page(pageid) {
         var n = ''
         if (client_status['pages'].length > 0)
             n = client_status['pages'][client_status['pages'].length - 1]['caption']
-        document.title = client_status['init']['name'] + ' | ' + n
+        document.title = n
     }
 }
 
@@ -282,12 +329,9 @@ function call_close_page(pageid) {
     rpc_post({
         'type': 'request',
         'objectid': pageid,
-        'method': '_close',
+        'method': 'QueryClose',
         'arguments': {
         }
-    }, function (e) {
-        if (e && e['value'])
-            close_page(e['objectid'])
     })
 }
 
@@ -303,29 +347,29 @@ function close_page(pageid) {
             // remove menu
             var mnu = $("#menu-left")
             mnu.children().each(function (i, e) {
-                if ($(e).prop('page-id') == pageid)
+                if ($(e).attr('page-id') == pageid)
                     $(e).remove()
             })
 
             // restore title
             var title = $('.content-wrapper').find('.content-header').find('#title')
             title.children().each(function (i, e) {
-                if ($(e).prop('page-id') == pageid) {
+                if ($(e).attr('page-id') == pageid) {
                     if ($(e).prev().prop('is-separator'))
                         $(e).prev().remove()
                     if ($(e).prev().prop('is-link')) {
                         var st = $(`<span>`)
                         st.html($(e).prev().html())
-                        st.prop('page-id', $(e).prev().prop('page-id'))
+                        st.attr('page-id', $(e).prev().attr('page-id'))
                         st.attr('title-id', $(e).prev().prop('title-id'))
                         $(e).prev().remove()
                         $(e).before(st)
                     }
-                    if ($(e).prev().prop('page-id')) {
-                        var ppid = $(e).prev().prop('page-id')
+                    if ($(e).prev().attr('page-id')) {
+                        var ppid = $(e).prev().attr('page-id')
                         $('#' + ppid).show()
                         mnu.children().each(function (i, e) {
-                            if ($(e).prop('page-id') == ppid)
+                            if ($(e).attr('page-id') == ppid)
                                 $(e).show()
                         })
                     }
@@ -351,6 +395,8 @@ function run_page(obj) {
     document.title = obj['caption']
 
     var render = function () {
+        $('#sideTitle').html(obj['applicationName'])
+
         if (obj['display'] == 'content') {
             render_controls_content(obj)
 
@@ -361,15 +407,19 @@ function run_page(obj) {
 
         if (client_status['dataset'])
             handle_data(client_status['dataset'])
+
+        $('input').first().trigger('focus')
     }
 
     if ($('body').prop('pageType') == '') {
-        if (obj['pageType'] == "NORMAL")
+        if (obj['pageType'] == "Normal")
             load_page(render);
-        else if (obj['pageType'] == "START")
+        else if (obj['pageType'] == "Start")
             load_start(render);
-        else if (obj['pageType'] == "LOGIN")
+        else if (obj['pageType'] == "Login")
             load_login(render);
+    } else {
+        render();
     }
 }
 
@@ -389,7 +439,7 @@ function render_controls_modal(page) {
     </div>
     `)
 
-    if (page['classname'] == "Dialog")
+    if (page['unitType'] == "Brayns.System.Confirm")
         div.find('.modal-dialog').addClass('modal-lg')
     else
         div.find('.modal-dialog').addClass('modal-xl')
@@ -409,10 +459,10 @@ function render_controls_modal(page) {
     }
 
     var close = div.find('#close')
-    close.prop('page-id', page['id'])
+    close.attr('page-id', page['id'])
     close.on('click', function (e) {
         var a = recurse_parent($(e.target), 'page-id')
-        call_close_page(a.prop('page-id'))
+        call_close_page(a.attr('page-id'))
     })
 
     div.on('hidden.bs.modal', function (e) {
@@ -426,7 +476,7 @@ function render_controls_content(page) {
     // hide menu
     var mnu = $("#menu-left")
     mnu.children().each(function (i, e) {
-        if ($(e).prop('page-id'))
+        if ($(e).attr('page-id'))
             $(e).hide()
     })
 
@@ -441,7 +491,7 @@ function render_controls_content(page) {
         a.html(st.html())
         a.prop('is-link', true)
         a.prop('page-ids', [])
-        a.prop('page-id', st.prop('page-id'))
+        a.attr('page-id', st.attr('page-id'))
         a.attr('title-id', st.prop('title-id'))
         a.on('click', function (e) {
             var pids = $(e.target).prop('page-ids')
@@ -464,7 +514,7 @@ function render_controls_content(page) {
 
     var th = $(`<span></span>`)
     th.html(page['caption'])
-    th.prop('page-id', page['id'])
+    th.attr('page-id', page['id'])
     th.attr('title-id', page['id'])
     th.appendTo(title)
 
@@ -477,7 +527,7 @@ function render_controls_content(page) {
     // recurse controls
     for (var c in page['controls']) {
         var ctl = page['controls'][c]
-        
+
         if (ctl['controlType'] == 'AppCenter')
             render_appcenter(ctl, page)
 
@@ -511,7 +561,7 @@ function render_contentarea_content(ctl, page) {
     carea.attr('id', page['id'])
     carea.find('#left-content').addClass('col-12')
     container.append(carea)
-    
+
     var left = carea.find('#left-content')
 
     render_contentarea_controls(ctl, left, page)
@@ -541,7 +591,6 @@ function render_appcenter(ctl, page) {
     $('#sidemenu').empty()
     $('body').addClass('sidebar-collapse')
     $('#menu-left').empty()
-    $('.main-footer').html(client_status['init']['footer'])
 
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
@@ -560,16 +609,24 @@ function render_appcenter(ctl, page) {
 
         else if (ctl2['controlType'] == 'UserCenter')
             render_usercenter(ctl2, page)
+
+        else if (ctl2['controlType'] == 'Footer')
+            render_footer(l2, page)
     }
 
     $('body').Layout('init')
     $('[data-widget="treeview"]').Treeview('init')
 }
 
+function render_footer(ctl) {
+    var wrap = $(".wrapper")
+    var foot = $(`<footer class="main-footer"></footer>`)
+    foot.appendTo(wrap);
+    foot.html(ctl['caption'])
+}
+
 function render_indicator(ctl) {
     var capt = ctl['caption']
-    if (capt == '')
-        capt = client_status['init']['indicator']
     if (capt == '')
         return
 
@@ -610,7 +667,7 @@ function render_search(ctl, page) {
     </li>
     `)
 
-    li.find('#search').attr('placeholder', client_status['init']['label_search'])
+    li.find('#search').attr('placeholder', ctl['caption'])
     $('#menu-right').append(li)
 }
 
@@ -624,8 +681,8 @@ function render_notification(ctl, page) {
         </li>
     `)
     li.prop('has-actions', false)
-    li.prop('control-id', ctl['id'])
-    li.prop('page-id', page['id'])
+    li.attr('control-id', ctl['id'])
+    li.attr('page-id', page['id'])
     $('#menu-right').append(li)
 
     for (var c in ctl['controls']) {
@@ -643,10 +700,10 @@ function refresh_notifications() {
 
     rpc_post({
         'type': 'request',
-        'objectid': li.prop('page-id'),
+        'objectid': li.attr('page-id'),
         'method': 'ControlInvoke',
         'arguments': {
-            'controlid': li.prop('control-id'),
+            'controlid': li.attr('control-id'),
             'method': 'get_notifications'
         }
     }, function (e) {
@@ -720,7 +777,7 @@ function render_usercenter(ctl, page) {
             </div>
         </li>
     `)
-    li.find('#title').html(ctl['username'])
+    li.find('#title').html(ctl['caption'])
     li.prop('id', ctl['id'])
     $('#menu-right').append(li)
 
@@ -733,7 +790,6 @@ function render_usercenter(ctl, page) {
 }
 
 function render_navigationpane(ctl, page) {
-    $('#sideTitle').html(client_status['init']['name'])
     $('body').removeClass('sidebar-collapse')
 
     var li = $(`
@@ -775,8 +831,8 @@ function render_action_usercenter(ctl, parent, page) {
     }
     act.find('#title').html(ctl['caption'])
 
-    act.prop('control-id', ctl['id'])
-    act.prop('page-id', page['id'])
+    act.attr('control-id', ctl['id'])
+    act.attr('page-id', page['id'])
     act.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
         action_trigger(a)
@@ -812,8 +868,8 @@ function render_action_notification(ctl, parent, page) {
     }
     act.find('#title').html(ctl['caption'])
 
-    act.prop('control-id', ctl['id'])
-    act.prop('page-id', page['id'])
+    act.attr('control-id', ctl['id'])
+    act.attr('page-id', page['id'])
     act.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
         action_trigger(a)
@@ -873,13 +929,13 @@ function toggle_repeater_pagination(ctl, count, page) {
             `)
 
             var al = pl.find('#golast')
-            al.prop('page-id', ctl.prop('page-id'))
+            al.attr('page-id', ctl.attr('page-id'))
             al.prop('page-size', page)
             al.prop('page-no', pages - 1)
             al.on('click', function (e) {
                 rpc_post({
                     'type': 'request',
-                    'objectid': $(e.target).prop('page-id'),
+                    'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
                     'arguments': {
                         'offset': $(e.target).prop('page-no') * $(e.target).prop('page-size'),
@@ -909,12 +965,12 @@ function toggle_repeater_pagination(ctl, count, page) {
                 var opt = $('<option>' + i + '</option>')
                 sl.append(opt)
             }
-            sl.prop('page-id', ctl.prop('page-id'))
+            sl.attr('page-id', ctl.attr('page-id'))
             sl.prop('page-size', page)
             sl.on('change', function (e) {
                 rpc_post({
                     'type': 'request',
-                    'objectid': $(e.target).prop('page-id'),
+                    'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
                     'arguments': {
                         'offset': ($(e.target).val() - 1) * $(e.target).prop('page-size'),
@@ -936,12 +992,12 @@ function toggle_repeater_pagination(ctl, count, page) {
             `)
 
             var af = pf.find('#gofirst')
-            af.prop('page-id', ctl.prop('page-id'))
+            af.attr('page-id', ctl.attr('page-id'))
             af.prop('page-size', page)
             af.on('click', function (e) {
                 rpc_post({
                     'type': 'request',
-                    'objectid': $(e.target).prop('page-id'),
+                    'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
                     'arguments': {
                         'offset': 0,
@@ -988,8 +1044,8 @@ function render_repeater_parent(ctl, parent, page) {
     `)
 
     grp.attr('is-grid', '1')
-    grp.prop('control-id', ctl['id'])
-    grp.prop('page-id', page['id'])
+    grp.attr('control-id', ctl['id'])
+    grp.attr('page-id', page['id'])
     grp.appendTo(parent)
     grp.find('#search').attr('placeholder', ctl['label_search'])
 
@@ -1025,7 +1081,7 @@ function render_repeater_parent(ctl, parent, page) {
             var grp = recurse_parent($(e.event.target), 'page-id')
             rpc_post({
                 'type': 'request',
-                'objectid': grp.prop('page-id'),
+                'objectid': grp.attr('page-id'),
                 'method': '_selectrows',
                 'arguments': {
                     'rows': [e.itemIndex]
@@ -1036,10 +1092,10 @@ function render_repeater_parent(ctl, parent, page) {
             var grp = recurse_parent($(e.event.target), 'control-id')
             rpc_post({
                 'type': 'request',
-                'objectid': grp.prop('page-id'),
+                'objectid': grp.attr('page-id'),
                 'method': 'ControlInvoke',
                 'arguments': {
-                    'controlid': grp.prop('control-id'),
+                    'controlid': grp.attr('control-id'),
                     'method': 'dblclick'
                 }
             })
@@ -1049,7 +1105,7 @@ function render_repeater_parent(ctl, parent, page) {
 
 function render_group_parent(ctl, parent, page) {
     var grp = $(`
-        <div class="card card-light">
+        <div class="card">
             <div class="card-header">
                 <h3 class="card-title"></h3>
             </div>
@@ -1057,6 +1113,11 @@ function render_group_parent(ctl, parent, page) {
             </div>
         </div>
     `)
+
+    if (ctl['primary'])
+        grp.addClass('card-primary')
+    else
+        grp.addClass('card-light')
 
     if (ctl['collapsible']) {
         var tools = $(`
@@ -1073,12 +1134,65 @@ function render_group_parent(ctl, parent, page) {
     grp.find('.card-title').html(ctl['caption'])
     var body = grp.find('.card-body')
 
+    var actions = []
+
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Field')
             render_field_parent(ctl2, body, page, ctl)
+        else if (ctl2['controlType'] == 'Action')
+            actions.push(ctl2)
     }
+
+    if (actions.length > 0) {
+        var foot = $(`<div class="card-footer">`)
+        foot.appendTo(grp)
+
+        for (var c in actions)
+            render_button_parent(actions[c], foot, page)
+    }
+}
+
+function render_checkbox(ctl, parent, page, schema) {
+    var grp = $(`<div class="form-check">`)
+
+    var inp = $(`<input type="checkbox" class="form-check-input">`)
+    inp.appendTo(grp)
+    inp.attr('bind-codename', ctl['codename'])
+    inp.prop('ctl-type', ctl['controlType'])
+    inp.attr('control-id', ctl['id'])
+    inp.attr('page-id', page['id'])
+    inp.attr('id', ctl['id'])
+
+    inp.on('change', function (e) {
+        if ($(e.target).prop('x-value') === $(e.target).prop('checked'))
+            return
+
+        rpc_post({
+            'type': 'request',
+            'objectid': $(e.target).attr('page-id'),
+            'method': 'ControlInvoke',
+            'arguments': {
+                'controlid': $(e.target).attr('control-id'),
+                'method': 'Validate',
+                'args': {
+                    'value': $(e.target).prop('checked'),
+                    'parseValue': false
+                }
+            }
+        }, function (r) {
+            if (!r)
+                $(e.target).prop('checked', $(e.target).prop('x-value'))
+        })
+    })
+
+    var lab = $(`<label class="form-check-label">`)
+    lab.attr('for', ctl['id'])
+    lab.html(ctl['caption'])
+    lab.appendTo(grp)
+
+    grp.appendTo(parent)
 }
 
 function render_select(ctl, parent, page, schema) {
@@ -1093,8 +1207,9 @@ function render_select(ctl, parent, page, schema) {
 
     sel.attr('bind-codename', ctl['codename'])
     sel.prop('ctl-type', ctl['controlType'])
-    sel.prop('control-id', ctl['id'])
-    sel.prop('page-id', page['id'])
+    sel.attr('control-id', ctl['id'])
+    sel.attr('page-id', page['id'])
+    sel.attr('id', ctl['id'])
 
     sel.on('change', function (e) {
         if ($(e.target).prop('x-value') === $(e.target).val())
@@ -1102,10 +1217,10 @@ function render_select(ctl, parent, page, schema) {
 
         rpc_post({
             'type': 'request',
-            'objectid': $(e.target).prop('page-id'),
+            'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
             'arguments': {
-                'controlid': $(e.target).prop('control-id'),
+                'controlid': $(e.target).attr('control-id'),
                 'method': 'Validate',
                 'args': {
                     'value': $(e.target).val(),
@@ -1129,18 +1244,22 @@ function render_input(ctl, parent, page, schema) {
 
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
-    inp.prop('control-id', ctl['id'])
-    inp.prop('page-id', page['id'])
+    inp.attr('control-id', ctl['id'])
+    inp.attr('id', ctl['id'])
+    inp.attr('page-id', page['id'])
+    inp.on('focus', function (e) {
+        client_status['last_focus'] = $(e.target)
+    })
     inp.on('blur', function (e) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
         rpc_post({
             'type': 'request',
-            'objectid': $(e.target).prop('page-id'),
+            'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
             'arguments': {
-                'controlid': $(e.target).prop('control-id'),
+                'controlid': $(e.target).attr('control-id'),
                 'method': 'Validate',
                 'args': {
                     'value': $(e.target).val(),
@@ -1157,25 +1276,28 @@ function render_input(ctl, parent, page, schema) {
 }
 
 function render_field_parent(ctl, parent, page, ctlParent) {
+    var schema = get_schema_field(page, ctl['codename'])
+
     var newRow = true
+   
     var row = parent.children(':last-child')
-    if (row.length > 0) {
+    if ((row.length > 0) && (ctlParent['labelOrientation'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two')) {
         if (row.prop('ctl-count') == 1) {
             newRow = false
         }
     }
-
+   
     if (newRow) {
         row = $(`<div>`)
         row.addClass("row")
-        row.css('margin-bottom', '8px')
         row.appendTo(parent)
         row.prop('ctl-count', 1)
     } else {
         row.prop('ctl-count', 2)
     }
-    
+
     var grp = $('<div class="form-group">')
+
     if (ctlParent['labelOrientation'] == 'Horizontal')
         grp.addClass("row")
     if (ctlParent['fieldPerRow'] == 'One')
@@ -1183,24 +1305,32 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     else
         grp.addClass("col-sm-6")
     grp.appendTo(row)
+    
+    var hasLabel = true
+    if (schema["fieldType"] == "BOOLEAN")
+        hasLabel = false
 
-    var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
-    if (ctlParent['labelOrientation'] == 'Horizontal')
-        label.addClass('col-sm-4')
-    else
-        label.addClass('col-sm-12')
-    label.html(ctl['caption'] + ':')
-    label.appendTo(grp)
+    if (hasLabel) {
+        var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
+        label.attr('for', ctl['id'])
+        if (ctlParent['labelOrientation'] == 'Horizontal')
+            label.addClass('col-sm-4')
+        else
+            label.addClass('col-sm-12')
+        label.html(ctl['caption'] + ':')
+        label.appendTo(grp)
+    }
 
     var field = $(`<div />`)
-    if (ctlParent['labelOrientation'] == 'Horizontal')
+    if ((ctlParent['labelOrientation'] == 'Horizontal') && hasLabel)
         field.addClass('col-sm-8')
     else
         field.addClass('col-sm-12')
 
-    var schema = get_schema_field(page, ctl['codename'])
     if (schema["fieldType"] == "OPTION")
         render_select(ctl, field, page, schema)
+    else if (schema["fieldType"] == "BOOLEAN")
+        render_checkbox(ctl, field, page, schema)
     else
         render_input(ctl, field, page, schema)
 
@@ -1221,8 +1351,12 @@ function render_button_parent(ctl, parent, page) {
         </div>
     `)
     bnt.find('button').html(ctl['caption'])
-    bnt.prop('control-id', ctl['id'])
-    bnt.prop('page-id', page['id'])
+    bnt.attr('control-id', ctl['id'])
+    bnt.attr('page-id', page['id'])
+
+    if (parent.hasClass('card-footer'))
+        bnt.addClass('float-right')
+
     parent.append(bnt)
 
     bnt.on('click', function (e) {
@@ -1253,8 +1387,8 @@ function render_button_button(ctl, parent, page) {
 
     var a = $(`<a class="dropdown-item" href="javascript:;"></a>`)
     a.html(ctl['caption'])
-    a.prop('control-id', ctl['id'])
-    a.prop('page-id', page['id'])
+    a.attr('control-id', ctl['id'])
+    a.attr('page-id', page['id'])
     a.appendTo(div)
 
     a.on('click', function (e) {
@@ -1290,8 +1424,8 @@ function render_action_actionarea_content(ctl, page) {
     li.find('#caption').html(ctl['caption'])
     li.prop('id', ctl['id'])
     li.prop('menu-level', 0)
-    li.prop('control-id', ctl['id'])
-    li.prop('page-id', page['id'])
+    li.attr('control-id', ctl['id'])
+    li.attr('page-id', page['id'])
     li.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
         action_trigger(a)
@@ -1345,8 +1479,8 @@ function render_action_action_content(ctl, parent, page) {
     li.find('#caption').html(ctl['caption'])
     li.prop('id', ctl['id'])
     li.prop('menu-level', level)
-    li.prop('control-id', ctl['id'])
-    li.prop('page-id', page['id'])
+    li.attr('control-id', ctl['id'])
+    li.attr('page-id', page['id'])
     li.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
         action_trigger(a)
@@ -1393,8 +1527,8 @@ function render_action_navigationpane(ctl, page) {
 
     li.find('i').addClass(ctl['icon'])
     li.find('#caption').html(ctl['caption'])
-    li.prop('control-id', ctl['id'])
-    li.prop('page-id', page['id'])
+    li.attr('control-id', ctl['id'])
+    li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
@@ -1444,8 +1578,8 @@ function render_action_action_navigationpane(ctl, parent, page) {
 
     li.find('i').addClass(ctl['icon'])
     li.find('#caption').html(ctl['caption'])
-    li.prop('control-id', ctl['id'])
-    li.prop('page-id', page['id'])
+    li.attr('control-id', ctl['id'])
+    li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
         var a = recurse_parent($(e.target), 'control-id')
@@ -1470,10 +1604,10 @@ function render_action_action_navigationpane(ctl, parent, page) {
 function action_trigger(obj) {
     rpc_post({
         'type': 'request',
-        'objectid': obj.prop('page-id'),
+        'objectid': obj.attr('page-id'),
         'method': 'ControlInvoke',
         'arguments': {
-            'controlid': obj.prop('control-id'),
+            'controlid': obj.attr('control-id'),
             'method': 'Trigger'
         }
     })
@@ -1489,14 +1623,14 @@ function debug_log(line) {
         console.log(line)
 }
 
-function recurse_parent(obj, prop) {
-    if (obj.prop(prop))
+function recurse_parent(obj, attr) {
+    if (obj.attr(attr))
         return obj
     else {
         if (obj.parent().length == 0)
             return null
         else
-            return recurse_parent(obj.parent(), prop)
+            return recurse_parent(obj.parent(), attr)
     }
 }
 
@@ -1531,6 +1665,7 @@ function show_error(obj) {
     div.find('#title').html('Error')
     div.find('#message').html(obj['message'])
     div.find('#ok').html('OK')
+    div.prop('modal-id', uuidv4())
 
     var trace = ''
     for (var t in obj['trace'])
@@ -1538,10 +1673,22 @@ function show_error(obj) {
     div.find('#stack').html(trace)
 
     div.on('hidden.bs.modal', function (e) {
-        $(e.target).remove()
+        var ediv = $(e.target)
+        ediv.remove()
+
+        for (var i = 0; i < client_status['modals'].length; i++)
+            if (client_status['modals'][i].prop('modal-id') == ediv.prop('modal-id')) {
+                client_status['modals'].splice(i, 1)
+                break;
+            }
+
+        if (client_status['last_focus'])
+            client_status['last_focus'].trigger('focus')
     })
 
     div.modal('show')
+
+    client_status['modals'].push(div)
 }
 
 /*
@@ -1574,6 +1721,8 @@ function core_initialize() {
             })
         }
     })
+
+    $(document).on('keydown', handle_shortcut)
 }
 
 function load_page(callback) {

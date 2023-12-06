@@ -12,7 +12,7 @@ namespace Brayns.Shaper
         FileSystem
     }
 
-    public static class Client
+    public static class WebClient
     {
         private static ClientSource Source { get; set; }
         private static string DebugPath { get; set; } = "";
