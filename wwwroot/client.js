@@ -167,7 +167,8 @@ function dispatch_chunk(obj) {
         }
 
         if (obj['action'] == 'property') {
-            handle_properties(obj['value'])
+            if (obj['target'] == 'page')
+                handle_page_properties(obj)
             return
         }
 
@@ -183,7 +184,7 @@ function dispatch_chunk(obj) {
  *
  */
 
-function handle_properties(obj) {
+function handle_page_properties(obj) {
     if (obj['property'] == 'caption') {
         document.title = obj['value']
         $('.content-wrapper').find('.content-header').find('[title-id="' + obj['pageid'] + '"]').html(obj['value'])
@@ -1148,11 +1149,7 @@ function render_grid_parent(ctl, parent, page) {
             rpc_enqueue({
                 'type': 'request',
                 'objectid': grp.attr('page-id'),
-                'method': 'ControlInvoke',
-                'arguments': {
-                    'controlid': grp.attr('ctl-id'),
-                    'method': 'dblclick'
-                }
+                'method': 'OpenRecord'
             })
         }
     })
@@ -1253,7 +1250,8 @@ function render_checkbox(ctl, parent, page, schema) {
 }
 
 function render_select(ctl, parent, page, schema) {
-    var sel = $(`<select class="custom-select-sm form-control">`)
+    var sel = $(`<select class="form-control custom-select-sm">`)
+    sel.css('font-size', '.875rem')
 
     for (var i in schema['options']) {
         var opt = $(`<option>`)
@@ -1300,6 +1298,9 @@ function render_input(ctl, parent, page, schema) {
 
     if (ctl['inputType'] == 'Password')
         inp.attr('type', 'password')
+
+    if (ctl['readOnly'])
+        inp.attr('readonly', true)
 
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
