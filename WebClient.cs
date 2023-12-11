@@ -5,90 +5,82 @@ using System.Text;
 
 namespace Brayns.Shaper
 {
-    public enum ClientSource
-    {
-        None,
-        Resource,
-        FileSystem
-    }
-
     public static class WebClient
     {
-        private static ClientSource Source { get; set; }
-        private static string DebugPath { get; set; } = "";
+        private static string? _debugPath;
+        public static string? DebugPath
+        {
+            get { return _debugPath; }
+            set
+            {
+                _debugPath = value;
+                if (_debugPath != null)
+                {
+                    _debugPath = _debugPath.Replace("\\", "/");
+                    if (!_debugPath.EndsWith("/"))
+                        _debugPath += "/";
+                }
+            }
+        }
 
         public static void MapShaperClient(this WebApplication app)
         {
-            app.MapGet("/{**path}", Dispatch);
+            app.MapGet("/client/{**path}", Dispatch);
         }
 
-        private static void DetectSource()
+        public static void MapShaperDefault(this WebApplication app)
         {
-            if (Source != ClientSource.None) return;
-
-            if (Debugger.IsAttached)
-            {
-                FileInfo fi = new(Assembly.GetExecutingAssembly().Location);
-                var fn = fi.FullName.ToLower().Replace("\\", "/");
-                int p = fn.IndexOf("/bin/debug/");
-                if (p > -1)
-                {
-                    fn = fn.Substring(0, p);
-                    int p2 = fn.LastIndexOf("/");
-                    if (p2 > -1)
-                    {
-                        fn = fn.Substring(0, p2);
-                        fn += "/shaperweb/wwwroot/";
-                        if (Directory.Exists(fn))
-                        {
-                            DebugPath = fn;
-                            Source = ClientSource.FileSystem;
-                            return;
-                        }
-                    }
-                }
-            }
-
-            Source = ClientSource.Resource;
+            app.MapGet("/", DispatchDefault);
         }
 
-        private static async Task<bool> GetFromFileSystem(string path, Stream body)
+        private static async Task DispatchDefault(HttpContext ctx)
         {
-            var fn = DebugPath + path;
-            if (!File.Exists(fn)) return false;
-
-            FileStream fs = new FileStream(fn, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-            await fs.CopyToAsync(body);
-            fs.Close();
-
-            return true;
+            ctx.Response.Redirect("/client");
         }
 
         private static async Task Dispatch(HttpContext ctx)
         {
-            DetectSource();
-
             var path = ctx.Request.RouteValues["path"]?.ToString() ?? "index.html";
-            bool exists = false;
 
-            var mime = new FileExtensionContentTypeProvider();
-            string? contentType;
-            if (!mime.TryGetContentType(path, out contentType))
-                contentType = "application/other";
+            Stream? content = null;
 
-            ctx.Response.ContentType = contentType;
-
-            switch (Source)
+            if (DebugPath != null)
             {
-                case ClientSource.FileSystem:
-                    exists = await GetFromFileSystem(path, ctx.Response.Body);
-                    break;
+                var fn = DebugPath + path;
+                if (File.Exists(fn))
+                    content = new FileStream(fn, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            }
+            
+            if (content == null)
+            {
+                string resourceName = "ShaperWeb.wwwroot.";
+                int n = path.LastIndexOf("/");
+                if (n > -1)
+                {
+                    resourceName += path.Substring(0, n).Replace("/", ".").Replace("-", "_");
+                    resourceName += "." + path.Substring(n + 1);
+                }
+                else
+                    resourceName += path;
+
+                content = Assembly.GetExecutingAssembly().GetManifestResourceStream(resourceName);
             }
 
-            if (!exists)
+            if (content != null)
+            {
+                var mime = new FileExtensionContentTypeProvider();
+                string? contentType;
+                if (!mime.TryGetContentType(path, out contentType))
+                    contentType = "application/other";
+
+                ctx.Response.ContentType = contentType;
+
+                await content.CopyToAsync(ctx.Response.Body);
+                content.Close();
+            }
+            else
             {
                 ctx.Response.StatusCode = 404;
-                return;
             }
         }
     }

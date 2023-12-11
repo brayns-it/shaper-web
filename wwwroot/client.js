@@ -12,7 +12,8 @@ var client_status = {
     'pages': [],
     'dataset': null,
     'modals': [],
-    'last_focus': null
+    'last_focus': null,
+    'request_queue': []
 }
 
 function uuidv4() {
@@ -30,6 +31,27 @@ var session_id = uuidv4()
  *  >>> NETWORK
  *
  */
+
+function rpc_enqueue(request, callback) {
+    client_status['request_queue'].push({
+        'request': request,
+        'callback': callback
+    })
+    if (client_status['request_queue'].length == 1)
+        rpc_flush()
+}
+
+function rpc_continue() {
+    client_status['request_queue'].shift()
+    rpc_flush()
+}
+
+function rpc_flush() {
+    if (client_status['request_queue'].length == 0) return
+
+    var item = client_status['request_queue'][0]
+    rpc_post(item['request'], item['callback'])
+}
 
 function rpc_post(request, callback) {
     var start = 0
@@ -71,6 +93,8 @@ function rpc_post(request, callback) {
                 }
                 if ((xhr.readyState == 4) && (callback != null))
                     callback(resobj)
+                if (xhr.readyState == 4)
+                    rpc_continue()
             }
             return xhr
         },
@@ -129,6 +153,11 @@ function dispatch_chunk(obj) {
 
         if ((obj['action'] == 'dataset') || (obj['action'] == 'datarow')) {
             handle_data(obj)
+            return
+        }
+
+        if (obj['action'] == 'notifications') {
+            handle_notifications(obj)
             return
         }
 
@@ -196,30 +225,32 @@ function handle_data(obj) {
         for (var i = 0; i < page['schema'].length; i++) {
             var codename = page['schema'][i]['codename']
             var fieldType = page['schema'][i]['fieldType']
-            var hasFormat = page['schema'][i]['hasformat']
+            var hasFormat = page['schema'][i]['hasFormat']
             var value = obj["data"][j][i]
             var fValue = obj["fdata"][j][i]
             if (!hasFormat) fValue = value
 
             if (j == 0) {
                 var ctl = dom.find('[bind-codename="' + codename + '"]')
-                var tag = ctl.prop("tagName").toUpperCase()
+                if (ctl.length > 0) {
+                    var tag = ctl.prop("tagName").toUpperCase()
 
-                if ((tag == 'INPUT') && (fieldType == 'BOOLEAN')) {
-                    ctl.prop('checked', value)
-                    ctl.prop('x-value', value)
+                    if ((tag == 'INPUT') && (fieldType == 'BOOLEAN')) {
+                        ctl.prop('checked', value)
+                        ctl.prop('x-value', value)
 
-                } else if (tag == 'SELECT') {
-                    ctl.val(value)
-                    ctl.prop('x-value', value)
+                    } else if (tag == 'SELECT') {
+                        ctl.val(value)
+                        ctl.prop('x-value', value)
 
-                } else {
-                    ctl.val(fValue)
-                    ctl.prop('x-value', fValue)
+                    } else {
+                        ctl.val(fValue)
+                        ctl.prop('x-value', fValue)
+                    }
                 }
             }
 
-            row_grid[codename] = value
+            row_grid[codename] = fValue
         }
 
         data_grid.push(row_grid)
@@ -233,7 +264,7 @@ function handle_data(obj) {
                     g.jsGrid({ data: data_grid })
 
                     if (obj['offset'] == 0)
-                        toggle_repeater_pagination($(e), obj['count'], obj['page'])
+                        toggle_grid_pagination($(e), obj['count'], obj['page'])
                 }
             }
         })
@@ -288,8 +319,11 @@ function handle_shortcut(evt) {
             if (evt.shiftKey && (k.indexOf("Shift+") == -1)) continue
             if (k.indexOf(evt.code) == -1) continue
 
-            var c = $('[control-id="' + page["shortcuts"][k] + '"]').first()
+            var c = $('[ctl-id="' + page["shortcuts"][k] + '"]').first()
             if (c.length > 0) {
+                console.log(client_status['last_focus'])
+                if (client_status['last_focus'])
+                    client_status['last_focus'].trigger('blur')
                 action_trigger(c)
                 evt.preventDefault()
                 return false
@@ -326,7 +360,7 @@ function pop_page(pageid) {
 }
 
 function call_close_page(pageid) {
-    rpc_post({
+    rpc_enqueue({
         'type': 'request',
         'objectid': pageid,
         'method': 'QueryClose',
@@ -439,7 +473,7 @@ function render_controls_modal(page) {
     </div>
     `)
 
-    if (page['unitType'] == "Brayns.System.Confirm")
+    if (page['unitType'] == "Brayns.Shaper.Systems.Confirm")
         div.find('.modal-dialog').addClass('modal-lg')
     else
         div.find('.modal-dialog').addClass('modal-xl')
@@ -537,6 +571,8 @@ function render_controls_content(page) {
         else if (ctl['controlType'] == 'ContentArea')
             render_contentarea_content(ctl, page)
 
+        else if (ctl['controlType'] == 'Footer')
+            render_footer(ctl, page)
     }
 }
 
@@ -574,10 +610,10 @@ function render_contentarea_controls(ctl, parent, page) {
 
         if (ctl2['controlType'] == 'Group')
             render_group_parent(ctl2, parent, page)
-        else if (ctl2['controlType'] == 'Repeater')
-            render_repeater_parent(ctl2, parent, page)
-        else if (ctl2['controlType'] == 'Text')
-            render_text_parent(ctl2, parent, page)
+        else if (ctl2['controlType'] == 'Grid')
+            render_grid_parent(ctl2, parent, page)
+        else if (ctl2['controlType'] == 'Html')
+            render_html_parent(ctl2, parent, page)
     }
 
 }
@@ -601,17 +637,14 @@ function render_appcenter(ctl, page) {
         else if (ctl2['controlType'] == 'NavigationPane')
             render_navigationpane(ctl2, page)
 
-        else if (ctl2['controlType'] == 'Notification')
-            render_notification(ctl2, page)
+        else if (ctl2['controlType'] == 'Notifications')
+            render_notifications(ctl2, page)
 
         else if (ctl2['controlType'] == 'Search')
             render_search(ctl2, page)
 
         else if (ctl2['controlType'] == 'UserCenter')
             render_usercenter(ctl2, page)
-
-        else if (ctl2['controlType'] == 'Footer')
-            render_footer(l2, page)
     }
 
     $('body').Layout('init')
@@ -620,6 +653,7 @@ function render_appcenter(ctl, page) {
 
 function render_footer(ctl) {
     var wrap = $(".wrapper")
+    if (wrap.length == 0) return;
     var foot = $(`<footer class="main-footer"></footer>`)
     foot.appendTo(wrap);
     foot.html(ctl['caption'])
@@ -671,17 +705,19 @@ function render_search(ctl, page) {
     $('#menu-right').append(li)
 }
 
-function render_notification(ctl, page) {
+function render_notifications(ctl, page) {
     var li = $(`
         <li class="nav-item dropdown" id="ctlNotification">
             <a class="nav-link" data-toggle="dropdown" href="javascript:;">
                 <i class="fas fa-bell"></i>
                 <span class="badge badge-danger navbar-badge" id='badge'></span>
             </a>
+            <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
+            </div>
         </li>
     `)
     li.prop('has-actions', false)
-    li.attr('control-id', ctl['id'])
+    li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     $('#menu-right').append(li)
 
@@ -692,50 +728,42 @@ function render_notification(ctl, page) {
             render_action_notification(ctl2, ctl, page)
     }
 
-    //TODOsetTimeout(refresh_notifications, 1000);
+    setTimeout(refresh_notifications, 1000);
 }
 
 function refresh_notifications() {
     var li = $('#ctlNotification')
 
-    rpc_post({
+    rpc_enqueue({
         'type': 'request',
         'objectid': li.attr('page-id'),
         'method': 'ControlInvoke',
         'arguments': {
-            'controlid': li.attr('control-id'),
-            'method': 'get_notifications'
+            'controlid': li.attr('ctl-id'),
+            'method': 'GetNotifications'
         }
-    }, function (e) {
-        if (!e)
-            return
+    }, function () {
+        setTimeout(refresh_notifications, 10000);
+    })
+}
 
-        var todel = []
-        var div = li.find('.dropdown-menu')
-        div.children().each(function (i, e) {
-            if ($(e).prop('is-notification'))
-                todel.push($(e))
-        })
-        for (var i = 0; i < todel.length; i++)
-            todel[i].remove()
+function handle_notifications(obj) {
+    var li = $('#ctlNotification')
+    li.find('#badge').html('')
 
-        if (e['value'].length == 0) {
-            li.find('#badge').html('')
-            div.remove()
+    var todel = []
+    var div = li.find('.dropdown-menu')
+    div.children().each(function (i, e) {
+        if ($(e).prop('is-notification'))
+            todel.push($(e))
+    })
+    for (var i = 0; i < todel.length; i++)
+        todel[i].remove()
 
-        } else {
-            li.find('#badge').html(e['value'].length)
+    var count = 0;
 
-            if (div.length == 0) {
-                div = $(`
-                    <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
-                    </div>
-                `)
-                div.appendTo(li)
-            }
-
-            for (var i = 0; i < e['value'].length; i++) {
-                var msg = $(`
+    for (var i = 0; i < obj['items'].length; i++) {
+        var msg = $(`
                     <a href="javascript:;" class="dropdown-item">
                         <div class="media">
                             <div class="media-body">
@@ -744,26 +772,57 @@ function refresh_notifications() {
                                     <span class="float-right text-sm text-muted"><i id='icon'></i></span>
                                 </h3>
                                 <p class="text-sm" id='description'></p>
-                                <p class="text-sm text-muted"><i class="far fa-clock mr-1"></i><span id='age'></span></p>
+                                <p class="text-sm text-muted" id='age'><i class="far fa-clock mr-1"></i><span id='ageValue'></span></p>
                             </div>
                         </div>
                     </a>
                 `)
-                msg.find('#title').html(e['value'][i]['title'])
-                msg.find('#description').html(e['value'][i]['description'])
-                msg.find('#icon').addClass(e['value'][i]['icon'])
-                msg.find('#age').html(e['value'][i]['age'])
-                msg.prop('is-notification', true)
-                div.prepend(msg)
+        msg.prop('is-notification', true)
 
-                var dro = $(`<div class="dropdown-divider"></div>`)
-                dro.prop('is-notification', true)
-                div.prepend(dro)
-            }
+        if (obj['items'][i]['title']) {
+            msg.find('#title').html(obj['items'][i]['title'])
+            msg.find('#icon').addClass(obj['items'][i]['icon'])
+        } else
+            msg.find('.dropdown-item-title').remove()
+
+        msg.find('#description').html(obj['items'][i]['description'])
+
+        if (obj['items'][i]['age'])
+            msg.find('#ageValue').html(obj['items'][i]['age'])
+        else
+            msg.find('#age').remove()
+            
+        if (obj['items'][i]['notificationID']) {
+            msg.prop('notificationID', obj['items'][i]['notificationID'])
+            count++;
+
+            msg.on('click', function (e) {
+                var ctl = recurse_parent($(e.target), 'ctl-id')
+                var msg = recurse_parent($(e.target), 'notificationID')
+                rpc_enqueue({
+                    'type': 'request',
+                    'objectid': ctl.attr('page-id'),
+                    'method': 'ControlInvoke',
+                    'arguments': {
+                        'controlid': ctl.attr('ctl-id'),
+                        'method': 'Trigger',
+                        'args': {
+                            'notificationID': msg.prop('notificationID')
+                        }
+                    }
+                })
+            })
         }
 
-        setTimeout(refresh_notifications, 10000);
-    })
+        div.prepend(msg)
+
+        var dro = $(`<div class="dropdown-divider"></div>`)
+        dro.prop('is-notification', true)
+        div.prepend(dro)
+
+        if (count > 0)
+            li.find('#badge').html(count)
+    }
 }
 
 function render_usercenter(ctl, page) {
@@ -831,10 +890,10 @@ function render_action_usercenter(ctl, parent, page) {
     }
     act.find('#title').html(ctl['caption'])
 
-    act.attr('control-id', ctl['id'])
+    act.attr('ctl-id', ctl['id'])
     act.attr('page-id', page['id'])
     act.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     menu.append(act)
@@ -848,13 +907,6 @@ function render_action_usercenter(ctl, parent, page) {
 function render_action_notification(ctl, parent, page) {
     var li = $('#ctlNotification')
     var div = li.find('.dropdown-menu')
-    if (div.length == 0) {
-        div = $(`
-            <div class="dropdown-menu dropdown-menu-lg dropdown-menu-right">
-            </div>
-        `)
-        div.appendTo(li)
-    }
 
     var act = $(`
         <div class="dropdown-divider"></div>
@@ -868,10 +920,10 @@ function render_action_notification(ctl, parent, page) {
     }
     act.find('#title').html(ctl['caption'])
 
-    act.attr('control-id', ctl['id'])
+    act.attr('ctl-id', ctl['id'])
     act.attr('page-id', page['id'])
     act.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     div.append(act)
@@ -908,7 +960,7 @@ function render_actionarea_modal(ctl, parent, page) {
  *
  */
 
-function toggle_repeater_pagination(ctl, count, page) {
+function toggle_grid_pagination(ctl, count, page) {
     var pages = Math.ceil(count / page)
 
     if (pages == 1) {
@@ -933,7 +985,7 @@ function toggle_repeater_pagination(ctl, count, page) {
             al.prop('page-size', page)
             al.prop('page-no', pages - 1)
             al.on('click', function (e) {
-                rpc_post({
+                rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
@@ -943,7 +995,7 @@ function toggle_repeater_pagination(ctl, count, page) {
                     }
                 }, function (r) {
                     if (r) {
-                        var grid = recurse_parent($(e.target), 'control-id')
+                        var grid = recurse_parent($(e.target), 'ctl-id')
                         var sl = grid.find('#page-p').find('select')
                         sl.val($(e.target).prop('page-no'))
                     }
@@ -968,7 +1020,7 @@ function toggle_repeater_pagination(ctl, count, page) {
             sl.attr('page-id', ctl.attr('page-id'))
             sl.prop('page-size', page)
             sl.on('change', function (e) {
-                rpc_post({
+                rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
@@ -995,7 +1047,7 @@ function toggle_repeater_pagination(ctl, count, page) {
             af.attr('page-id', ctl.attr('page-id'))
             af.prop('page-size', page)
             af.on('click', function (e) {
-                rpc_post({
+                rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': '_getdata',
@@ -1005,7 +1057,7 @@ function toggle_repeater_pagination(ctl, count, page) {
                     }
                 }, function (r) {
                     if (r) {
-                        var grid = recurse_parent($(e.target), 'control-id')
+                        var grid = recurse_parent($(e.target), 'ctl-id')
                         var sl = grid.find('#page-p').find('select')
                         sl.val(1)
                     }
@@ -1016,7 +1068,7 @@ function toggle_repeater_pagination(ctl, count, page) {
     }
 }
 
-function render_repeater_parent(ctl, parent, page) {
+function render_grid_parent(ctl, parent, page) {
     var grp = $(`
         <div class="card card-light">
             <div class="card-header">
@@ -1044,7 +1096,7 @@ function render_repeater_parent(ctl, parent, page) {
     `)
 
     grp.attr('is-grid', '1')
-    grp.attr('control-id', ctl['id'])
+    grp.attr('ctl-id', ctl['id'])
     grp.attr('page-id', page['id'])
     grp.appendTo(parent)
     grp.find('#search').attr('placeholder', ctl['label_search'])
@@ -1072,30 +1124,33 @@ function render_repeater_parent(ctl, parent, page) {
         width: "100%",
         sorting: true,
         data: [],
-        noDataContent: ctl['label_nodata'],
+        noDataContent: ctl['labelNodata'],
         fields: fields,
         sort: function (e) {
             // console.log(JSON.stringify(e))
         },
         rowClick: function (e) {
+            grid.find('.jsgrid-row, .jsgrid-alt-row').removeClass('grid-row-highlight');
+            this.rowByItem(e.item).addClass("grid-row-highlight");
+
             var grp = recurse_parent($(e.event.target), 'page-id')
-            rpc_post({
+            rpc_enqueue({
                 'type': 'request',
                 'objectid': grp.attr('page-id'),
-                'method': '_selectrows',
+                'method': 'SelectRows',
                 'arguments': {
                     'rows': [e.itemIndex]
                 }
             })
         },
         rowDoubleClick: function (e) {
-            var grp = recurse_parent($(e.event.target), 'control-id')
-            rpc_post({
+            var grp = recurse_parent($(e.event.target), 'ctl-id')
+            rpc_enqueue({
                 'type': 'request',
                 'objectid': grp.attr('page-id'),
                 'method': 'ControlInvoke',
                 'arguments': {
-                    'controlid': grp.attr('control-id'),
+                    'controlid': grp.attr('ctl-id'),
                     'method': 'dblclick'
                 }
             })
@@ -1161,20 +1216,22 @@ function render_checkbox(ctl, parent, page, schema) {
     inp.appendTo(grp)
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
-    inp.attr('control-id', ctl['id'])
+    inp.attr('ctl-id', ctl['id'])
     inp.attr('page-id', page['id'])
     inp.attr('id', ctl['id'])
-
+    inp.on('focus', function (e) {
+        client_status['last_focus'] = $(e.target)
+    })
     inp.on('change', function (e) {
         if ($(e.target).prop('x-value') === $(e.target).prop('checked'))
             return
 
-        rpc_post({
+        rpc_enqueue({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
             'arguments': {
-                'controlid': $(e.target).attr('control-id'),
+                'controlid': $(e.target).attr('ctl-id'),
                 'method': 'Validate',
                 'args': {
                     'value': $(e.target).prop('checked'),
@@ -1207,20 +1264,22 @@ function render_select(ctl, parent, page, schema) {
 
     sel.attr('bind-codename', ctl['codename'])
     sel.prop('ctl-type', ctl['controlType'])
-    sel.attr('control-id', ctl['id'])
+    sel.attr('ctl-id', ctl['id'])
     sel.attr('page-id', page['id'])
     sel.attr('id', ctl['id'])
-
+    sel.on('focus', function (e) {
+        client_status['last_focus'] = $(e.target)
+    })
     sel.on('change', function (e) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
-        rpc_post({
+        rpc_enqueue({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
             'arguments': {
-                'controlid': $(e.target).attr('control-id'),
+                'controlid': $(e.target).attr('ctl-id'),
                 'method': 'Validate',
                 'args': {
                     'value': $(e.target).val(),
@@ -1244,7 +1303,7 @@ function render_input(ctl, parent, page, schema) {
 
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
-    inp.attr('control-id', ctl['id'])
+    inp.attr('ctl-id', ctl['id'])
     inp.attr('id', ctl['id'])
     inp.attr('page-id', page['id'])
     inp.on('focus', function (e) {
@@ -1254,12 +1313,12 @@ function render_input(ctl, parent, page, schema) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
-        rpc_post({
+        rpc_enqueue({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
             'arguments': {
-                'controlid': $(e.target).attr('control-id'),
+                'controlid': $(e.target).attr('ctl-id'),
                 'method': 'Validate',
                 'args': {
                     'value': $(e.target).val(),
@@ -1279,14 +1338,14 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     var schema = get_schema_field(page, ctl['codename'])
 
     var newRow = true
-   
+
     var row = parent.children(':last-child')
     if ((row.length > 0) && (ctlParent['labelOrientation'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two')) {
         if (row.prop('ctl-count') == 1) {
             newRow = false
         }
     }
-   
+
     if (newRow) {
         row = $(`<div>`)
         row.addClass("row")
@@ -1305,7 +1364,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     else
         grp.addClass("col-sm-6")
     grp.appendTo(row)
-    
+
     var hasLabel = true
     if (schema["fieldType"] == "BOOLEAN")
         hasLabel = false
@@ -1337,10 +1396,11 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     field.appendTo(grp)
 }
 
-function render_text_parent(ctl, parent, page) {
+function render_html_parent(ctl, parent, page) {
     var div = $(`<div></div>`)
-    div.attr('bind-codename', ctl['codename'])
-    div.prop('ctl-type', ctl['controlType'])
+    //TODOdiv.attr('bind-codename', ctl['codename'])
+    //TODOdiv.prop('ctl-type', ctl['controlType'])
+    div.html(ctl['content'])
     parent.append(div)
 }
 
@@ -1351,7 +1411,7 @@ function render_button_parent(ctl, parent, page) {
         </div>
     `)
     bnt.find('button').html(ctl['caption'])
-    bnt.attr('control-id', ctl['id'])
+    bnt.attr('ctl-id', ctl['id'])
     bnt.attr('page-id', page['id'])
 
     if (parent.hasClass('card-footer'))
@@ -1360,7 +1420,7 @@ function render_button_parent(ctl, parent, page) {
     parent.append(bnt)
 
     bnt.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
 
@@ -1387,12 +1447,12 @@ function render_button_button(ctl, parent, page) {
 
     var a = $(`<a class="dropdown-item" href="javascript:;"></a>`)
     a.html(ctl['caption'])
-    a.attr('control-id', ctl['id'])
+    a.attr('ctl-id', ctl['id'])
     a.attr('page-id', page['id'])
     a.appendTo(div)
 
     a.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
 }
@@ -1424,10 +1484,10 @@ function render_action_actionarea_content(ctl, page) {
     li.find('#caption').html(ctl['caption'])
     li.prop('id', ctl['id'])
     li.prop('menu-level', 0)
-    li.attr('control-id', ctl['id'])
+    li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
 
@@ -1479,10 +1539,10 @@ function render_action_action_content(ctl, parent, page) {
     li.find('#caption').html(ctl['caption'])
     li.prop('id', ctl['id'])
     li.prop('menu-level', level)
-    li.attr('control-id', ctl['id'])
+    li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     ul.append(li)
@@ -1527,11 +1587,11 @@ function render_action_navigationpane(ctl, page) {
 
     li.find('i').addClass(ctl['icon'])
     li.find('#caption').html(ctl['caption'])
-    li.attr('control-id', ctl['id'])
+    li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     $('#sidemenu').append(li)
@@ -1578,11 +1638,11 @@ function render_action_action_navigationpane(ctl, parent, page) {
 
     li.find('i').addClass(ctl['icon'])
     li.find('#caption').html(ctl['caption'])
-    li.attr('control-id', ctl['id'])
+    li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'control-id')
+        var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     li.appendTo(ul)
@@ -1602,12 +1662,12 @@ function render_action_action_navigationpane(ctl, parent, page) {
  */
 
 function action_trigger(obj) {
-    rpc_post({
+    rpc_enqueue({
         'type': 'request',
         'objectid': obj.attr('page-id'),
         'method': 'ControlInvoke',
         'arguments': {
-            'controlid': obj.attr('control-id'),
+            'controlid': obj.attr('ctl-id'),
             'method': 'Trigger'
         }
     })
@@ -1626,12 +1686,14 @@ function debug_log(line) {
 function recurse_parent(obj, attr) {
     if (obj.attr(attr))
         return obj
-    else {
-        if (obj.parent().length == 0)
-            return null
-        else
-            return recurse_parent(obj.parent(), attr)
-    }
+
+    if (obj.prop(attr))
+        return obj;
+
+    if (obj.parent().length == 0)
+        return null
+    else
+        return recurse_parent(obj.parent(), attr)
 }
 
 /*
@@ -1699,9 +1761,9 @@ function show_error(obj) {
 function core_initialize() {
     $('body').prop("pageType", '')
 
-    rpc_post({
+    rpc_enqueue({
         'type': 'request',
-        'classname': 'Brayns.System.ClientManagement',
+        'classname': 'Brayns.Shaper.Systems.ClientManagement',
         'method': 'Initialize',
         'arguments': {}
     })
@@ -1711,7 +1773,7 @@ function core_initialize() {
         return;
         for (var i = 0; i < client_status['pages'].length; i++) {
             var pid = client_status['pages'][i]['id']
-            rpc_post({
+            rpc_enqueue({
                 'type': 'request',
                 'objectid': pid,
                 'method': '_close',
@@ -1726,7 +1788,7 @@ function core_initialize() {
 }
 
 function load_page(callback) {
-    $('#bodyArea').load('page.html', function (e) {
+    $('#bodyArea').load('client/page.html', function (e) {
         $('body').prop('pageType', 'page')
         $('body').removeClass()
         $('body').addClass('hold-transition')
@@ -1742,7 +1804,7 @@ function load_page(callback) {
 }
 
 function load_start(callback) {
-    $('#bodyArea').load('start.html', function (e) {
+    $('#bodyArea').load('client/start.html', function (e) {
         $('body').prop("pageType", 'start')
         $('body').removeClass()
         $('body').addClass('hold-transition')
@@ -1759,7 +1821,7 @@ function load_start(callback) {
 }
 
 function load_login(callback) {
-    $('#bodyArea').load('login.html', function (e) {
+    $('#bodyArea').load('client/login.html', function (e) {
         $('body').prop('pageType', 'login')
         $('body').removeClass()
         $('body').addClass('hold-transition')
