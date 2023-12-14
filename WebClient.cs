@@ -53,7 +53,7 @@ namespace Brayns.Shaper
             
             if (content == null)
             {
-                string resourceName = "ShaperWeb.wwwroot.";
+                string resourceName = "ShaperWeb.web.";
                 int n = path.LastIndexOf("/");
                 if (n > -1)
                 {

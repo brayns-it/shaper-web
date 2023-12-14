@@ -244,6 +244,10 @@ function handle_data(obj) {
                         ctl.val(value)
                         ctl.prop('x-value', value)
 
+                    } else if (tag == 'DIV') {
+                        ctl.html(fValue)
+                        ctl.prop('x-value', fValue)
+
                     } else {
                         ctl.val(fValue)
                         ctl.prop('x-value', fValue)
@@ -1370,6 +1374,25 @@ function render_select(ctl, parent, page, schema) {
     sel.appendTo(parent)
 }
 
+function render_input_html(ctl, parent, page, schema) {
+    var inp = null
+
+    if (ctl['readOnly']) {
+        inp = $(`<div>`)
+
+    } else {
+        // TODO
+    }
+    
+    inp.attr('bind-codename', ctl['codename'])
+    inp.prop('ctl-type', ctl['controlType'])
+    inp.attr('ctl-id', ctl['id'])
+    inp.attr('id', ctl['id'])
+    inp.attr('page-id', page['id'])
+
+    inp.appendTo(parent)
+}
+
 function render_input(ctl, parent, page, schema) {
     var inp = $(`<input class="form-control form-control-sm">`)
 
@@ -1450,6 +1473,8 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     var hasLabel = true
     if (schema["fieldType"] == "BOOLEAN")
         hasLabel = false
+    if (ctl['inputType'] == "Html")
+        hasLabel = false
 
     if (hasLabel) {
         var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
@@ -1472,6 +1497,8 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         render_select(ctl, field, page, schema)
     else if (schema["fieldType"] == "BOOLEAN")
         render_checkbox(ctl, field, page, schema)
+    else if (ctl['inputType'] == "Html")
+        render_input_html(ctl, field, page, schema)
     else
         render_input(ctl, field, page, schema)
 
@@ -1480,8 +1507,6 @@ function render_field_parent(ctl, parent, page, ctlParent) {
 
 function render_html_parent(ctl, parent, page) {
     var div = $(`<div></div>`)
-    //TODOdiv.attr('bind-codename', ctl['codename'])
-    //TODOdiv.prop('ctl-type', ctl['controlType'])
     div.html(ctl['content'])
     parent.append(div)
 }

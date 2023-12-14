@@ -15,11 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <None Remove="wwwroot\**" />
+    <None Remove="web\**" />
   </ItemGroup>
 
   <ItemGroup>
-    <EmbeddedResource Include="wwwroot\**" />
+    <EmbeddedResource Include="web\**" />
   </ItemGroup>
 
 </Project>
