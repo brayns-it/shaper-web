@@ -251,38 +251,72 @@ function handle_data(obj) {
                 }
             }
 
-            row_grid[codename] = fValue
+            row_grid[codename] = {
+                'value': value,
+                'fValue': fValue
+            }
         }
 
         data_grid.push(row_grid)
     }
 
+    dom.find('[is-grid="1"]').each(function (i, e) {
+        var grid = $(e)
+        if (grid.attr('page-id') == obj['pageid'])
+            handle_data_grid(data_grid, grid, obj)
+    })
+}
+
+function handle_data_grid(data_grid, grid, obj) {
+    var cols = []
+    grid.find('thead').find('tr').find('th').each(function (i, e) {
+        cols.push($(e).prop('codeName'))
+    })
+
+    var tbody = grid.find("tbody")
+
+    if (obj['selectedrow'] > -1) {
+        var row = tbody.find('[data-index="' + obj['selectedrow'] + '"]')
+        var i = 0;
+        row.find('td').each(function (i, e) {
+            console.log('z')
+            $(e).html(data_grid[0][cols[i]]['fValue'])
+            i++
+        })
+
+        return
+    }
+
     if (obj["action"] == 'dataset') {
-        dom.find('[is-grid="1"]').each(function (i, e) {
-            if ($(e).attr('page-id') == obj['pageid']) {
-                var g = $(e).find('#grid')
-                if (g.length > 0) {
-                    g.jsGrid({ data: data_grid })
+        tbody.empty()
 
-                    if (obj['offset'] == 0)
-                        toggle_grid_pagination($(e), obj['count'], obj['page'])
-                }
-            }
-        })
+        if (data_grid.length == 0) {
+            var nodata_row = $(`<tr><td></td></tr>`)
+            var nodata = nodata_row.find('td')
+            nodata.attr("colspan", cols.length)
+            nodata.html(grid.prop('labelNodata'))
+            nodata_row.appendTo(tbody)
+        }
 
-    } else if (obj['selectedrow'] > -1) {
-        dom.find('[is-grid="1"]').each(function (i, e) {
-            if ($(e).attr('page-id') == obj['pageid']) {
-                var g = $(e).find('#grid')
-                if (g.length > 0) {
-                    var data = g.jsGrid('option', 'data')
-                    data[obj['selectedrow']] = data_grid[0]
-                    g.jsGrid({ data: data })
-                }
+        for (var i = 0; i < data_grid.length; i++) {
+            var row = $(`<tr>`)
+            row.attr('data-index', i)
+
+            for (var j = 0; j < cols.length; j++) {
+                var col = $(`<td>`)
+                col.html(data_grid[i][cols[j]]['fValue'])
+                col.css('padding-top', '6px')
+                col.css('padding-bottom', '6px')
+                col.appendTo(row)
             }
-        })
+            row.appendTo(tbody)
+        }
+
 
     }
+
+    //toggle_grid_pagination ?
+
 }
 
 /*
@@ -426,6 +460,11 @@ function close_page(pageid) {
 
 function run_page(obj) {
     client_status['pages'].push(obj)
+
+    if (obj['parentId']) {
+        render_controls_content_subpage(obj)
+        return
+    }
 
     document.title = obj['caption']
 
@@ -578,6 +617,34 @@ function render_controls_content(page) {
 }
 
 /*
+ *  >>> SUBPAGE
+ *
+ */
+
+function render_controls_content_subpage(page) {
+    var parent = $('[ctl-id="' + page['parentId'] + '"]').first()
+    parent.attr('id', page['id'])
+
+    // recurse controls
+    for (var c in page['controls']) {
+        var ctl = page['controls'][c]
+
+        if (ctl['controlType'] == 'ContentArea')
+            render_contentarea_controls(ctl, parent, page)
+    }
+
+    // actions after controls
+    for (var c in page['controls']) {
+        var ctl = page['controls'][c]
+
+        if (ctl['controlType'] == 'ActionArea') {
+            var head = parent.find('.card-header')
+            render_actionarea_card(ctl, head, page)
+        }
+    }
+}
+
+/*
  *  >>> CONTENT
  *
  */
@@ -611,6 +678,8 @@ function render_contentarea_controls(ctl, parent, page) {
 
         if (ctl2['controlType'] == 'Group')
             render_group_parent(ctl2, parent, page)
+        else if (ctl2['controlType'] == 'Subpage')
+            render_subpage_parent(ctl2, parent, page)
         else if (ctl2['controlType'] == 'Grid')
             render_grid_parent(ctl2, parent, page)
         else if (ctl2['controlType'] == 'Html')
@@ -792,7 +861,7 @@ function handle_notifications(obj) {
             msg.find('#ageValue').html(obj['items'][i]['age'])
         else
             msg.find('#age').remove()
-            
+
         if (obj['items'][i]['notificationID']) {
             msg.prop('notificationID', obj['items'][i]['notificationID'])
             count++;
@@ -1090,8 +1159,14 @@ function render_grid_parent(ctl, parent, page) {
                     </button>
                 </div>
             </div>
-            <div class="card-body">
-                <div id="grid"></div>
+            <div class="card-body table-responsive p-0">
+                <table class="table table-hover text-nowrap">
+                    <thead>
+                        <tr></tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
             </div>
         </div>
     `)
@@ -1099,60 +1174,62 @@ function render_grid_parent(ctl, parent, page) {
     grp.attr('is-grid', '1')
     grp.attr('ctl-id', ctl['id'])
     grp.attr('page-id', page['id'])
+    grp.prop('labelNodata', ctl['labelNodata'])
     grp.appendTo(parent)
     grp.find('#search').attr('placeholder', ctl['label_search'])
 
-    var body = grp.find('.card-body')
-    body.css('padding', '4px')
-
-    var fields = []
+    var head = grp.find("thead").find("tr")
 
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Field') {
-            var f = {
-                name: ctl2['codename'],
-                title: ctl2['caption']
-            }
-            fields.push(f)
+            var th = $(`<th>`)
+            th.html(ctl2['caption'])
+            th.prop('codeName', ctl2['codename'])
+            th.css('padding-top', '6px')
+            th.css('padding-bottom', '6px')
+            head.append(th)
         }
     }
 
-    var grid = grp.find('#grid')
-    grid.jsGrid({
-        height: "auto",
-        width: "100%",
-        sorting: true,
-        data: [],
-        noDataContent: ctl['labelNodata'],
-        fields: fields,
-        sort: function (e) {
-            // console.log(JSON.stringify(e))
-        },
-        rowClick: function (e) {
-            grid.find('.jsgrid-row, .jsgrid-alt-row').removeClass('grid-row-highlight');
-            this.rowByItem(e.item).addClass("grid-row-highlight");
+    var tbody = grp.find("tbody")
 
-            var grp = recurse_parent($(e.event.target), 'page-id')
+    tbody.on('click', function (e) {
+        var grid = recurse_parent($(e.target), 'is-grid')
+        grid.find('tr').removeClass('table-row-highlight');
+
+        var a = recurse_parent($(e.target), 'data-index')
+        var grp = recurse_parent($(e.target), 'page-id')
+        if (a) {
             rpc_enqueue({
                 'type': 'request',
                 'objectid': grp.attr('page-id'),
                 'method': 'SelectRows',
                 'arguments': {
-                    'rows': [e.itemIndex]
+                    'rows': [a.attr('data-index') * 1]
                 }
             })
-        },
-        rowDoubleClick: function (e) {
-            var grp = recurse_parent($(e.event.target), 'ctl-id')
-            rpc_enqueue({
-                'type': 'request',
-                'objectid': grp.attr('page-id'),
-                'method': 'OpenRecord'
-            })
+
+            a.addClass('table-row-highlight')
         }
     })
+
+    tbody.on('dblclick', function (e) {
+        var grp = recurse_parent($(e.target), 'ctl-id')
+        rpc_enqueue({
+            'type': 'request',
+            'objectid': grp.attr('page-id'),
+            'method': 'OpenRecord'
+        })
+    })
+}
+
+function render_subpage_parent(ctl, parent, page) {
+    var grp = $(`<div>`)
+    grp.attr('ctl-id', ctl['id'])
+    grp.prop('is-subpage', 1)
+    grp.appendTo(parent)
 }
 
 function render_group_parent(ctl, parent, page) {
@@ -1341,10 +1418,13 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     var newRow = true
 
     var row = parent.children(':last-child')
-    if ((row.length > 0) && (ctlParent['labelOrientation'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two')) {
-        if (row.prop('ctl-count') == 1) {
-            newRow = false
-        }
+    if (row.length > 0) {
+        if ((ctlParent['labelOrientation'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two'))
+            if (row.prop('ctl-count') == 1)
+                newRow = false
+
+        if (newRow)
+            row.css('margin-bottom', '6px')
     }
 
     if (newRow) {
@@ -1357,6 +1437,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     }
 
     var grp = $('<div class="form-group">')
+    grp.css('margin-bottom', '0px')
 
     if (ctlParent['labelOrientation'] == 'Horizontal')
         grp.addClass("row")
@@ -1464,15 +1545,17 @@ function render_button_button(ctl, parent, page) {
  */
 
 function render_actionarea_content(ctl, page) {
+    var mnu = $("#menu-left")
+
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
-            render_action_actionarea_content(ctl2, page)
+            render_action_actionarea_content(ctl2, mnu, page)
     }
 }
 
-function render_action_actionarea_content(ctl, page) {
+function render_action_actionarea_content(ctl, parent, page) {
     var li = $(`
         <li class="nav-item">
             <a href="javascript:;" class="nav-link">
@@ -1491,9 +1574,7 @@ function render_action_actionarea_content(ctl, page) {
         var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
-
-    var mnu = $("#menu-left")
-    mnu.append(li)
+    li.appendTo(parent)
 
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
@@ -1555,6 +1636,36 @@ function render_action_action_content(ctl, parent, page) {
             render_action_action_content(ctl2, ctl, page)
     }
 }
+
+/*
+ *  >>> ACTIONS INSIDE CARD
+ *
+ */
+
+function render_actionarea_card(ctl, parent, page) {
+    var title = parent.find('.card-tools')
+
+    var a = $(`<div class="card-tools"></div>`)
+    a.css('float', 'left')
+    parent.append(a)
+
+    var ul = $(`<ul class="navbar-nav"></ul>`)
+    ul.css('display', 'inline-block')
+    ul.css('padding', '0px')
+    ul.prependTo(a)
+
+    for (var c in ctl['controls']) {
+        var ctl2 = ctl['controls'][c]
+
+        if (ctl2['controlType'] == 'Action')
+            render_action_actionarea_content(ctl2, ul, page)
+    }
+
+    ul.find('.nav-link').css('padding-left', '0px')
+    ul.find('.nav-link').css('padding-top', '0px')
+    ul.find('.nav-link').css('padding-bottom', '0px')
+}
+
 
 /*
  *  >>> ACTIONS INSIDE NAVIGATION PANE

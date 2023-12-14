@@ -1,4 +1,3 @@
-tr.grid-row-highlight td.jsgrid-cell {
-    background-color: #c4e2ff !important;
-    border-color: #c4e2ff;
+.table-row-highlight {
+    background-color: #c4e2ff;
 }
