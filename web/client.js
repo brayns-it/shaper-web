@@ -274,7 +274,10 @@ function handle_data(obj) {
 function handle_data_grid(data_grid, grid, obj) {
     var cols = []
     grid.find('thead').find('tr').find('th').each(function (i, e) {
-        cols.push($(e).prop('codeName'))
+        cols.push({
+            'codeName': $(e).prop('codeName'),
+            'fieldType': $(e).prop('fieldType')
+        })
     })
 
     var tbody = grid.find("tbody")
@@ -283,8 +286,7 @@ function handle_data_grid(data_grid, grid, obj) {
         var row = tbody.find('[data-index="' + obj['selectedrow'] + '"]')
         var i = 0;
         row.find('td').each(function (i, e) {
-            console.log('z')
-            $(e).html(data_grid[0][cols[i]]['fValue'])
+            $(e).html(data_grid[0][cols[i].codeName]['fValue'])
             i++
         })
 
@@ -308,7 +310,9 @@ function handle_data_grid(data_grid, grid, obj) {
 
             for (var j = 0; j < cols.length; j++) {
                 var col = $(`<td>`)
-                col.html(data_grid[i][cols[j]]['fValue'])
+                col.html(data_grid[i][cols[j].codeName]['fValue'])
+                if ((cols[j].fieldType == 'DECIMAL') || (cols[j].fieldType == 'INTEGER'))
+                    col.css('text-align', 'right')
                 col.css('padding-top', '6px')
                 col.css('padding-bottom', '6px')
                 col.appendTo(row)
@@ -316,11 +320,8 @@ function handle_data_grid(data_grid, grid, obj) {
             row.appendTo(tbody)
         }
 
-
+        toggle_grid_pagination(grid, obj['count'], obj['pageSize'])
     }
-
-    //toggle_grid_pagination ?
-
 }
 
 /*
@@ -1034,10 +1035,10 @@ function render_actionarea_modal(ctl, parent, page) {
  *
  */
 
-function toggle_grid_pagination(ctl, count, page) {
-    var pages = Math.ceil(count / page)
+function toggle_grid_pagination(ctl, count, pageSize) {
+    var pages = Math.ceil(count / pageSize)
 
-    if (pages == 1) {
+    if (pages <= 1) {
         ctl.find('#page-f').remove()
         ctl.find('#page-p').remove()
         ctl.find('#page-l').remove()
@@ -1056,23 +1057,20 @@ function toggle_grid_pagination(ctl, count, page) {
 
             var al = pl.find('#golast')
             al.attr('page-id', ctl.attr('page-id'))
-            al.prop('page-size', page)
-            al.prop('page-no', pages - 1)
+            al.prop('page-size', pageSize)
+            al.prop('page-no', pages)
             al.on('click', function (e) {
                 rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
-                    'method': '_getdata',
+                    'method': 'GetData',
                     'arguments': {
-                        'offset': $(e.target).prop('page-no') * $(e.target).prop('page-size'),
-                        'limit': $(e.target).prop('page-size')
+                        'offset': ($(e.target).prop('page-no') - 1) * $(e.target).prop('page-size')
                     }
-                }, function (r) {
-                    if (r) {
-                        var grid = recurse_parent($(e.target), 'ctl-id')
-                        var sl = grid.find('#page-p').find('select')
-                        sl.val($(e.target).prop('page-no'))
-                    }
+                }, function () {
+                    var grid = recurse_parent($(e.target), 'ctl-id')
+                    var sl = grid.find('#page-p').find('select')
+                    sl.val($(e.target).prop('page-no'))
                 })
             })
             sg.after(pl)
@@ -1087,20 +1085,19 @@ function toggle_grid_pagination(ctl, count, page) {
             `)
 
             var sl = pp.find('select')
-            for (var i = 1; i < pages; i++) {
+            for (var i = 1; i <= pages; i++) {
                 var opt = $('<option>' + i + '</option>')
                 sl.append(opt)
             }
             sl.attr('page-id', ctl.attr('page-id'))
-            sl.prop('page-size', page)
+            sl.prop('page-size', pageSize)
             sl.on('change', function (e) {
                 rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
-                    'method': '_getdata',
+                    'method': 'GetData',
                     'arguments': {
-                        'offset': ($(e.target).val() - 1) * $(e.target).prop('page-size'),
-                        'limit': $(e.target).prop('page-size')
+                        'offset': ($(e.target).val() - 1) * $(e.target).prop('page-size')
                     }
                 })
             })
@@ -1119,22 +1116,19 @@ function toggle_grid_pagination(ctl, count, page) {
 
             var af = pf.find('#gofirst')
             af.attr('page-id', ctl.attr('page-id'))
-            af.prop('page-size', page)
+            af.prop('page-size', pageSize)
             af.on('click', function (e) {
                 rpc_enqueue({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
-                    'method': '_getdata',
+                    'method': 'GetData',
                     'arguments': {
-                        'offset': 0,
-                        'limit': $(e.target).prop('page-size')
+                        'offset': 0
                     }
-                }, function (r) {
-                    if (r) {
-                        var grid = recurse_parent($(e.target), 'ctl-id')
-                        var sl = grid.find('#page-p').find('select')
-                        sl.val(1)
-                    }
+                }, function () {
+                    var grid = recurse_parent($(e.target), 'ctl-id')
+                    var sl = grid.find('#page-p').find('select')
+                    sl.val(1)
                 })
             })
             sg.after(pf)
@@ -1152,7 +1146,7 @@ function render_grid_parent(ctl, parent, page) {
                         <div class="input-group input-group-sm">
                             <input type="text" class="form-control float-right" id="search">
                             <div class="input-group-append">
-                                <button type="submit" class="btn btn-default">
+                                <button type="submit" class="btn btn-default" id="searchButton">
                                     <i class="fas fa-search"></i>
                                 </button>
                             </div>
@@ -1180,7 +1174,33 @@ function render_grid_parent(ctl, parent, page) {
     grp.attr('page-id', page['id'])
     grp.prop('labelNodata', ctl['labelNodata'])
     grp.appendTo(parent)
-    grp.find('#search').attr('placeholder', ctl['label_search'])
+
+    var searchBox = grp.find('#search')
+    var btns = grp.find('#searchButton')
+
+    searchBox.attr('placeholder', ctl['label_search'])
+    searchBox.on('keydown', function (evt) {
+        if (evt.code == 'Enter') {
+            var grp = recurse_parent($(evt.target), 'page-id')
+            var btns = grp.find('#searchButton')
+            btns.trigger('click')
+            evt.preventDefault()
+            return false
+        }
+    })
+        
+    btns.on('click', function (e) {
+        var grp = recurse_parent($(e.target), 'page-id')
+
+        rpc_enqueue({
+            'type': 'request',
+            'objectid': grp.attr('page-id'),
+            'method': 'Search',
+            'arguments': {
+                'text': grp.find('#search').val()
+            }
+        })
+    })
 
     var head = grp.find("thead").find("tr")
 
@@ -1189,8 +1209,13 @@ function render_grid_parent(ctl, parent, page) {
 
         if (ctl2['controlType'] == 'Field') {
             var th = $(`<th>`)
+
+            if ((ctl2['fieldType'] == 'DECIMAL') || (ctl2['fieldType'] == 'INTEGER'))
+                th.css('text-align', 'right')
+
             th.html(ctl2['caption'])
             th.prop('codeName', ctl2['codename'])
+            th.prop('fieldType', ctl2['fieldType'])
             th.css('padding-top', '6px')
             th.css('padding-bottom', '6px')
             head.append(th)
@@ -1288,7 +1313,7 @@ function render_group_parent(ctl, parent, page) {
 }
 
 function render_checkbox(ctl, parent, page, schema) {
-    var grp = $(`<div class="form-check">`)
+    var grp = $(`<div class="form-check" style='height: 30px'>`)
 
     var inp = $(`<input type="checkbox" class="form-check-input">`)
     inp.appendTo(grp)
@@ -1383,7 +1408,7 @@ function render_input_html(ctl, parent, page, schema) {
     } else {
         // TODO
     }
-    
+
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
     inp.attr('ctl-id', ctl['id'])
