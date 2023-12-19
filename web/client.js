@@ -9,11 +9,13 @@ for (var i = 0; i < 230; i++)
 boundary += '",'
 
 var client_status = {
+    'application_name': '',
     'pages': [],
     'dataset': null,
     'modals': [],
     'last_focus': null,
-    'request_queue': []
+    'request_queue': [],
+    'network_error': false
 }
 
 function uuidv4() {
@@ -100,10 +102,14 @@ function rpc_post(request, callback) {
         },
         error: function (jqXHR, textStatus, errorThrown) {
             if ((!jqXHR.responseJSON) && (jqXHR.status != 200)) {
-                obj = {}
-                obj['message'] = 'Network error: try again later.'
-                obj['trace'] = []
-                show_error(obj)
+                if (!client_status['network_error']) {
+                    client_status['network_error'] = true
+
+                    obj = {}
+                    obj['message'] = 'Network error: try again later.'
+                    obj['trace'] = []
+                    show_error(obj)
+                }
             }
         }
     })
@@ -173,9 +179,20 @@ function dispatch_chunk(obj) {
         }
 
         if (obj['action'] == 'reload') {
-            location.reload();
+            location.reload()
             return
         }
+
+        if (obj['action'] == 'navigate') {
+            window.open(obj['url'], '_blank');
+            return
+        }
+
+        if (obj['action'] == 'download') {
+            handle_download(obj)
+            return
+        }
+
     }
 }
 
@@ -186,8 +203,58 @@ function dispatch_chunk(obj) {
 
 function handle_page_properties(obj) {
     if (obj['property'] == 'caption') {
-        document.title = obj['value']
+        set_title(obj['value'])
         $('.content-wrapper').find('.content-header').find('[title-id="' + obj['pageid'] + '"]').html(obj['value'])
+    }
+}
+
+function send_selection(grid) {
+    var sel = []
+    grid.find('.table-row-selector').find('input').each(function (i, e) {
+        if ($(e).prop('checked') && $(e).attr('data-index'))
+            sel.push($(e).attr('data-index') * 1)
+    })
+
+    rpc_enqueue({
+        'type': 'request',
+        'objectid': grid.attr('page-id'),
+        'method': 'SelectRows',
+        'arguments': {
+            'rows': sel
+        }
+    })
+}
+
+function toggle_grid_select(grid, selected) {
+    grid.find('.table-row-selector').find('input').each(function (i, e) {
+        if ($(e).attr('data-index'))
+            $(e).prop('checked', selected)
+    })
+
+    if (selected)
+        grid.find('.table-row-selector').show()
+    else
+        grid.find('.table-row-selector').hide()
+}
+
+function toggle_row_select(row, selected) {
+    var grp = recurse_parent(row, 'page-id')
+
+    var inp = row.find('.table-row-selector').find('input')
+    inp.prop('checked', selected)
+
+    if (selected) {
+        grp.find('.table-row-selector').show()
+
+    } else {
+        var hasOne = false
+        grp.find('.table-row-selector').find('input').each(function (i, e) {
+            if ($(e).prop('checked'))
+                hasOne = true
+        })
+
+        if (!hasOne)
+            grp.find('.table-row-selector').hide()
     }
 }
 
@@ -274,10 +341,11 @@ function handle_data(obj) {
 function handle_data_grid(data_grid, grid, obj) {
     var cols = []
     grid.find('thead').find('tr').find('th').each(function (i, e) {
-        cols.push({
-            'codeName': $(e).prop('codeName'),
-            'fieldType': $(e).prop('fieldType')
-        })
+        if ($(e).prop('codeName'))
+            cols.push({
+                'codeName': $(e).prop('codeName'),
+                'fieldType': $(e).prop('fieldType')
+            })
     })
 
     var tbody = grid.find("tbody")
@@ -286,14 +354,17 @@ function handle_data_grid(data_grid, grid, obj) {
         var row = tbody.find('[data-index="' + obj['selectedrow'] + '"]')
         var i = 0;
         row.find('td').each(function (i, e) {
-            $(e).html(data_grid[0][cols[i].codeName]['fValue'])
-            i++
+            if ($(e).prop('codeName')) {
+                $(e).html(data_grid[0][cols[i].codeName]['fValue'])
+                i++
+            }
         })
 
         return
     }
 
     if (obj["action"] == 'dataset') {
+        toggle_grid_select(grid, false)
         tbody.empty()
 
         if (data_grid.length == 0) {
@@ -307,6 +378,21 @@ function handle_data_grid(data_grid, grid, obj) {
         for (var i = 0; i < data_grid.length; i++) {
             var row = $(`<tr>`)
             row.attr('data-index', i)
+
+            var selTh = $(`<td class="table-row-selector"><input type="checkbox"></th>`)
+            selTh.hide()
+            selTh.css('padding-top', '6px')
+            selTh.css('padding-bottom', '6px')
+            row.append(selTh)
+
+            var selInp = selTh.find('input')
+            selInp.attr('data-index', i)
+            selInp.on('change', function (e) {
+                var grp = recurse_parent($(e.target), 'page-id')
+                var row = recurse_parent($(e.target), 'data-index')
+                toggle_row_select(row, $(e).prop('checked'))
+                send_selection(grp)
+            })
 
             for (var j = 0; j < cols.length; j++) {
                 var col = $(`<td>`)
@@ -395,7 +481,7 @@ function pop_page(pageid) {
         var n = ''
         if (client_status['pages'].length > 0)
             n = client_status['pages'][client_status['pages'].length - 1]['caption']
-        document.title = n
+        set_title(n)
     }
 }
 
@@ -471,7 +557,8 @@ function run_page(obj) {
         return
     }
 
-    document.title = obj['caption']
+    client_status['application_name'] = obj['applicationName']
+    set_title(obj['caption'])
 
     var render = function () {
         $('#sideTitle').html(obj['applicationName'])
@@ -926,6 +1013,13 @@ function render_usercenter(ctl, page) {
 function render_navigationpane(ctl, page) {
     $('body').removeClass('sidebar-collapse')
 
+    if (ctl['caption'] > '') {
+        $('#userPanel').show()
+        $('#infoName').html(ctl['caption'])
+    } else {
+        $('#userPanel').hide()
+    }
+
     var li = $(`
         <li class="nav-item" id="pushmenu">
             <a class="nav-link" data-widget="pushmenu" href="javascript:;" role="button"><i class="fas fa-bars"></i></a>
@@ -1180,7 +1274,7 @@ function render_grid_parent(ctl, parent, page) {
 
     searchBox.attr('placeholder', ctl['label_search'])
     searchBox.on('keydown', function (evt) {
-        if (evt.code == 'Enter') {
+        if ((evt.code == 'Enter') || (evt.code == 'NumpadEnter')) {
             var grp = recurse_parent($(evt.target), 'page-id')
             var btns = grp.find('#searchButton')
             btns.trigger('click')
@@ -1188,7 +1282,7 @@ function render_grid_parent(ctl, parent, page) {
             return false
         }
     })
-        
+
     btns.on('click', function (e) {
         var grp = recurse_parent($(e.target), 'page-id')
 
@@ -1204,6 +1298,17 @@ function render_grid_parent(ctl, parent, page) {
 
     var head = grp.find("thead").find("tr")
 
+    var selTh = $(`<th class="table-row-selector"><input type="checkbox"></th>`)
+    selTh.css('padding-top', '6px')
+    selTh.css('padding-bottom', '6px')
+    selTh.hide()
+    head.append(selTh)
+    selTh.find('input').on('change', function (e) {
+        var grp = recurse_parent($(e.target), 'page-id')
+        toggle_grid_select(grp, $(e.target).prop('checked'))
+        send_selection(grp)
+    })
+
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
@@ -1213,7 +1318,55 @@ function render_grid_parent(ctl, parent, page) {
             if ((ctl2['fieldType'] == 'DECIMAL') || (ctl2['fieldType'] == 'INTEGER'))
                 th.css('text-align', 'right')
 
-            th.html(ctl2['caption'])
+            var sort = $(`<a href='javascript:;'>`)
+            sort.html(ctl2['caption'])
+            sort.appendTo(th)
+            sort.on('click', function (e) {
+                var grp = recurse_parent($(e.target), 'page-id')
+
+                var th = $(e.target).closest('th')
+                var i = th.find('i')
+                var asc = true
+                var cn = ''
+
+                if (i.hasClass('fa-chevron-up')) {
+                    i.removeClass('fa-chevron-up')
+                    i.addClass('fa-chevron-down')
+                    cn = th.prop('codeName')
+                    asc = false
+
+                } else if (i.hasClass('fa-chevron-down')) {
+                    i.removeClass('fa-chevron-down')
+                    i.hide()
+
+                } else {
+                    var thead = $(e.target).closest('thead')
+                    thead.find('i').removeClass('fa-chevron-down')
+                    thead.find('i').removeClass('fa-chevron-up')
+                    thead.find('i').hide()
+
+                    i.addClass('fa-chevron-up')
+                    i.show()
+                    cn = th.prop('codeName')
+                }
+
+                rpc_enqueue({
+                    'type': 'request',
+                    'objectid': grp.attr('page-id'),
+                    'method': 'Sort',
+                    'arguments': {
+                        'sortBy': cn,
+                        'ascending': asc
+                    }
+                })
+            })
+
+            var i = $(`<i class="fas"></i>`)
+            i.css("padding-left", "5px")
+            i.css("font-size", ".75em")
+            i.appendTo(th)
+            i.hide()
+                
             th.prop('codeName', ctl2['codename'])
             th.prop('fieldType', ctl2['fieldType'])
             th.css('padding-top', '6px')
@@ -1225,32 +1378,44 @@ function render_grid_parent(ctl, parent, page) {
     var tbody = grp.find("tbody")
 
     tbody.on('click', function (e) {
-        var grid = recurse_parent($(e.target), 'is-grid')
-        grid.find('tr').removeClass('table-row-highlight');
+        if ($(e.target).prop('tagName') == "INPUT") // switch to change event
+            return
 
-        var a = recurse_parent($(e.target), 'data-index')
-        var grp = recurse_parent($(e.target), 'page-id')
-        if (a) {
+        var grp = recurse_parent($(e.target), 'ctl-id')
+        var row = recurse_parent($(e.target), 'data-index')
+        if (!row) return
+
+        var inp = row.find('.table-row-selector').find('input')
+        var tgt = $(e.target)
+
+        if (e.detail > 1) {
+            // is doubleclick
+            tgt.prop('in-doubleclick', true)
+
+            toggle_grid_select(grp, false)
+            toggle_row_select(row, true)
+
             rpc_enqueue({
                 'type': 'request',
                 'objectid': grp.attr('page-id'),
-                'method': 'SelectRows',
+                'method': 'OpenRecord',
                 'arguments': {
-                    'rows': [a.attr('data-index') * 1]
+                    'row': row.attr('data-index') * 1
                 }
             })
 
-            a.addClass('table-row-highlight')
-        }
-    })
+        } else {
+            setTimeout(function () {
+                if (tgt.prop('in-doubleclick')) {
+                    tgt.prop('in-doubleclick', false)
+                    return
+                }
 
-    tbody.on('dblclick', function (e) {
-        var grp = recurse_parent($(e.target), 'ctl-id')
-        rpc_enqueue({
-            'type': 'request',
-            'objectid': grp.attr('page-id'),
-            'method': 'OpenRecord'
-        })
+                // is single click
+                toggle_row_select(row, !inp.prop('checked'))
+                send_selection(grp)
+            }, 100)
+        }
     })
 }
 
@@ -1457,7 +1622,31 @@ function render_input(ctl, parent, page, schema) {
         })
     })
 
-    inp.appendTo(parent)
+    var group = null
+    if (schema["fieldType"] == "DATE") {
+        group = $(`<div class="input-group date" data-target-input="nearest">`)
+        group.attr('id', ctl['id'] + '-group')
+        inp.addClass("datetimepicker-input")
+        inp.attr("data-target", '#' + ctl['id'] + '-group')
+        inp.appendTo(group)
+        group.appendTo(parent)
+
+        var tgl = $(`
+            <div class="input-group-append" data-toggle="datetimepicker">
+                <div class="input-group-text"><i class="fas fa-calendar-days"></i></div>
+            </div>
+        `)
+        tgl.attr("data-target", '#' + ctl['id'] + '-group')
+        tgl.appendTo(group)
+
+        group.datetimepicker({
+            locale: page['locale'],
+            format: 'L'
+        })
+    }
+
+    if (!group) 
+        inp.appendTo(parent)
 }
 
 function render_field_parent(ctl, parent, page, ctlParent) {
@@ -1823,6 +2012,13 @@ function render_action_action_navigationpane(ctl, parent, page) {
  *
  */
 
+function set_title(title) {
+    if (client_status['application_name'] > '')
+        document.title = title + ' | ' + client_status['application_name']
+    else
+        document.title = title
+}
+
 function action_trigger(obj) {
     rpc_enqueue({
         'type': 'request',
@@ -1832,6 +2028,21 @@ function action_trigger(obj) {
             'controlid': obj.attr('ctl-id'),
             'method': 'Trigger'
         }
+    })
+}
+
+function handle_download(obj) {
+    var data = 'data:' + obj['mimeType'] + ';base64,' + obj['b64content']
+    fetch(data).then((response) => response.blob()).then((blob) => {
+        var url = URL.createObjectURL(blob)
+        var a = $(`<a>`)
+        if (obj['fileName'])
+            a.attr("download", obj['fileName'])
+        else
+            a.attr("target", '_blank')
+        a.attr("href", url)
+        a[0].click()
+        URL.revokeObjectURL(x)
     })
 }
 
@@ -1865,7 +2076,7 @@ function recurse_parent(obj, attr) {
 
 function show_error(obj) {
     var div = $(`
-    <div class="modal fade">
+    <div class="modal fade" data-backdrop="static">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
                 <div class="modal-header">
@@ -1897,6 +2108,9 @@ function show_error(obj) {
     div.find('#stack').html(trace)
 
     div.on('hidden.bs.modal', function (e) {
+        if (client_status['network_error'])
+            location.reload()
+
         var ediv = $(e.target)
         ediv.remove()
 
@@ -1931,19 +2145,12 @@ function core_initialize() {
     })
 
     $(window).on("beforeunload", function () {
-        // todo  
-        return;
-        for (var i = 0; i < client_status['pages'].length; i++) {
-            var pid = client_status['pages'][i]['id']
-            rpc_enqueue({
-                'type': 'request',
-                'objectid': pid,
-                'method': '_close',
-                'arguments': {
-                    'mandatory': true
-                }
-            })
-        }
+        rpc_enqueue({
+            'type': 'request',
+            'classname': 'Brayns.Shaper.Systems.ClientManagement',
+            'method': 'Destroy',
+            'arguments': {}
+        })
     })
 
     $(document).on('keydown', handle_shortcut)
