@@ -11,7 +11,6 @@ boundary += '",'
 var client_status = {
     'application_name': '',
     'pages': [],
-    'dataset': null,
     'modals': [],
     'last_focus': null,
     'request_queue': [],
@@ -276,15 +275,6 @@ function handle_data(obj) {
         return
 
     var dom = $('#' + obj['pageid'])
-    if (dom.length == 0) {
-        if (obj["action"] == 'dataset')
-            client_status['dataset'] = obj;
-        return
-    }
-
-    if (obj["action"] == 'dataset')
-        client_status['dataset'] = null;    // data received before loading
-
     var data_grid = []
 
     for (var j = 0; j < obj["data"].length; j++) {
@@ -560,33 +550,29 @@ function run_page(obj) {
     client_status['application_name'] = obj['applicationName']
     set_title(obj['caption'])
 
-    var render = function () {
-        $('#sideTitle').html(obj['applicationName'])
-
-        if (obj['display'] == 'content') {
-            render_controls_content(obj)
-
-        } else if (obj['display'] == 'modal') {
-            render_controls_modal(obj)
-
-        }
-
-        if (client_status['dataset'])
-            handle_data(client_status['dataset'])
-
-        $('input').first().trigger('focus')
-    }
-
     if ($('body').prop('pageType') == '') {
         if (obj['pageType'] == "Normal")
-            load_page(render);
+            show_page()
         else if (obj['pageType'] == "Start")
-            load_start(render);
+            show_start()
         else if (obj['pageType'] == "Login")
-            load_login(render);
-    } else {
-        render();
+            show_login()
     }
+
+    $('#sideTitle').html(obj['applicationName'])
+
+    if (obj['display'] == 'content') {
+        render_controls_content(obj)
+
+    } else if (obj['display'] == 'modal') {
+        render_controls_modal(obj)
+
+    }
+
+    $('input').first().trigger('focus')
+
+    $('body').css('height', '');
+    $('body').Layout('init')
 }
 
 function render_controls_modal(page) {
@@ -889,24 +875,6 @@ function render_notifications(ctl, page) {
         if (ctl2['controlType'] == 'Action')
             render_action_notification(ctl2, ctl, page)
     }
-
-    setTimeout(refresh_notifications, 1000);
-}
-
-function refresh_notifications() {
-    var li = $('#ctlNotification')
-
-    rpc_enqueue({
-        'type': 'request',
-        'objectid': li.attr('page-id'),
-        'method': 'ControlInvoke',
-        'arguments': {
-            'controlid': li.attr('ctl-id'),
-            'method': 'GetNotifications'
-        }
-    }, function () {
-        setTimeout(refresh_notifications, 10000);
-    })
 }
 
 function handle_notifications(obj) {
@@ -1584,7 +1552,7 @@ function render_input_html(ctl, parent, page, schema) {
 }
 
 function render_input(ctl, parent, page, schema) {
-    var inp = $(`<input class="form-control form-control-sm">`)
+    var inp = $(`<input class="form-control form-control-sm" autocomplete="off" role="presentation">`)
 
     if (ctl['inputType'] == 'Password')
         inp.attr('type', 'password')
@@ -1600,7 +1568,7 @@ function render_input(ctl, parent, page, schema) {
     inp.on('focus', function (e) {
         client_status['last_focus'] = $(e.target)
     })
-    inp.on('blur', function (e) {
+    inp.on('change', function (e) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
@@ -2154,56 +2122,163 @@ function core_initialize() {
     })
 
     $(document).on('keydown', handle_shortcut)
+
+    setTimeout(poll, 1000);
 }
 
-function load_page(callback) {
-    $('#bodyArea').load('client/page.html', function (e) {
-        $('body').prop('pageType', 'page')
-        $('body').removeClass()
-        $('body').addClass('hold-transition')
-        $('body').addClass('layout-top-nav')
-        $('body').addClass('text-sm')
-        $('body').css('min-height', '')
-        $('#indicator').css('display', 'none')
-
-        if (callback) callback()
-
-        $('body').Layout('init')
+function poll() {
+    rpc_enqueue({
+        'type': 'request',
+        'classname': 'Brayns.Shaper.Systems.ClientManagement',
+        'method': 'Poll',
+        'arguments': {}
+    }, function () {
+        setTimeout(poll, 10000);
     })
 }
 
-function load_start(callback) {
-    $('#bodyArea').load('client/start.html', function (e) {
-        $('body').prop("pageType", 'start')
-        $('body').removeClass()
-        $('body').addClass('hold-transition')
-        $('body').addClass('layout-fixed')
-        $('body').addClass('sidebar-collapse')
-        $('body').addClass('text-sm')
-        $('body').css('min-height', '')
-        $('#indicator').css('display', 'none')
-
-        if (callback) callback()
-
-        $('body').Layout('init')
-    })
+function remove_wrappers() {
+    var fc = $('body').children().first()
+    if (fc.prop('tagName') != 'SCRIPT')
+        fc.remove()
 }
 
-function load_login(callback) {
-    $('#bodyArea').load('client/login.html', function (e) {
-        $('body').prop('pageType', 'login')
-        $('body').removeClass()
-        $('body').addClass('hold-transition')
-        $('body').addClass('login-page')
-        $('body').addClass('text-sm')
-        $('body').css('min-height', '500px')
+function show_page() {
+    remove_wrappers()
 
-        if (callback) callback()
+    var bw = $(`
+        <div class="wrapper">
+            <nav class="main-header navbar navbar-expand-md navbar-light navbar-white">
+                <div class="container">
+                    <span class="navbar-brand">
+                        <span class="brand-text font-weight-light" id="sideTitle"></span>
+                    </span>
+                    <div class="navbar-collapse">
+                        <ul class="navbar-nav" id="menu-left">
+                        </ul>
+                    </div>
+                </div>
+            </nav>
 
-        $('body').css('height', '');
-        $('body').Layout('init')
-    })
+            <div class="content-wrapper">
+                <div class="content-header">
+                    <div class="container">
+                        <div class="row mb-2">
+                            <div class="col-sm-6">
+                                <h1 class="m-0" id="title"></h1>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content">
+                    <div class="container" id="container">
+
+                    </div>
+                </div>
+            </div>
+        </div>
+    `)
+
+    $('body').prepend(bw)
+    $('body').prop('pageType', 'page')
+    $('body').removeClass()
+    $('body').addClass('hold-transition')
+    $('body').addClass('layout-top-nav')
+    $('body').addClass('text-sm')
+    $('body').css('min-height', '')
+    $('#indicator').css('display', 'none')
 }
 
+function show_start() {
+    remove_wrappers()
 
+    var bw = $(`
+        <div class="wrapper">
+            <div class="preloader flex-column justify-content-center align-items-center">
+                <img class="animation__shake" src="public/client/logo60.png" height="60" width="60">
+            </div>
+
+            <nav class="main-header navbar navbar-expand navbar-white navbar-light">
+                <ul class="navbar-nav" id="menu-left">
+                </ul>
+
+                <ul class="navbar-nav ml-auto" id="menu-right">
+                </ul>
+            </nav>
+
+            <aside class="main-sidebar sidebar-dark-primary elevation-4">
+                <div class="brand-link">
+                    <img src="public/client/logo30w.png" class="brand-image">
+                    <span class="brand-text font-weight-light" id="sideTitle"></span>
+                </div>
+
+                <div class="sidebar">
+                    <div class="user-panel mt-1 pb-1 mb-1 d-flex" id="userPanel">
+                        <div class="info">
+                            <a href="javascript:;" class="d-block" id="infoName"></a>
+                        </div>
+                    </div>
+                    <nav class="mt-2">
+                        <ul class="nav nav-pills nav-sidebar nav-flat flex-column" data-widget="treeview" role="menu"
+                            data-accordion="false" id="sidemenu">
+                        </ul>
+                    </nav>
+                </div>
+            </aside>
+
+            <div class="content-wrapper">
+                <div class="content-header">
+                    <div class="content-header">
+                        <div class="row mb-2">
+                            <div class="col-sm-12">
+                                <h1 class="m-0" id="title"></h1>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <section class="content">
+                    <div class="container-fluid" id="container">
+                    </div>
+                </section>
+            </div>
+        </div>
+    `)
+
+    $('body').prepend(bw)
+    $('body').prop("pageType", 'start')
+    $('body').removeClass()
+    $('body').addClass('hold-transition')
+    $('body').addClass('layout-fixed')
+    $('body').addClass('sidebar-collapse')
+    $('body').addClass('text-sm')
+    $('body').css('min-height', '')
+    $('#indicator').css('display', 'none')
+}
+
+function show_login() {
+    remove_wrappers()
+
+    var bw = $(`
+        <div class="login-box" id="container">
+        </div>
+    `)
+
+    $('body').prepend(bw)
+    $('body').prop('pageType', 'login')
+    $('body').removeClass()
+    $('body').addClass('hold-transition')
+    $('body').addClass('login-page')
+    $('body').addClass('text-sm')
+    $('body').css('min-height', '500px')
+}
+
+/*
+ *  >>> START
+ *
+ */
+
+$(function () {
+    core_initialize()
+})
 
