@@ -26,7 +26,7 @@ function uuidv4() {
         })
 }
 
-var session_id = uuidv4()
+var session_id = '';
 
 /*
  *  >>> NETWORK
@@ -54,11 +54,26 @@ function rpc_flush() {
     rpc_post(item['request'], item['callback'])
 }
 
-function rpc_post(request, callback) {
+function rpc_post(request, callback, ignore_response) {
     var start = 0
     var resobj = null
 
     debug_log(">> " + JSON.stringify(request))
+
+    if (ignore_response) {
+        $.ajax({
+            url: '/rpc',
+            headers: {
+                'X-Rpc-WebClient': '1',
+                'X-Rpc-SessionId': session_id
+            },
+            type: 'post',
+            contentType: 'application/json',
+            data: JSON.stringify(request)
+        })
+
+        return;
+    }
 
     $.ajax({
         url: '/rpc',
@@ -146,6 +161,9 @@ function handle_chunk(response) {
 
 function dispatch_chunk(obj) {
     if (obj['type'] == 'exception') {
+        if (obj['code'] == 6)           // E_INVALID_SESSION
+            client_status['network_error'] = true
+        
         show_error(obj)
         return
     }
@@ -2110,15 +2128,18 @@ function core_initialize() {
         'classname': 'Brayns.Shaper.Systems.ClientManagement',
         'method': 'Initialize',
         'arguments': {}
+    }, function (e) {
+        if (e)
+            session_id = e['value']
     })
 
-    $(window).on("beforeunload", function () {
-        rpc_enqueue({
+    $(window).on("unload", function () {
+        rpc_post({
             'type': 'request',
             'classname': 'Brayns.Shaper.Systems.ClientManagement',
             'method': 'Destroy',
             'arguments': {}
-        })
+        }, null, true)
     })
 
     $(document).on('keydown', handle_shortcut)
