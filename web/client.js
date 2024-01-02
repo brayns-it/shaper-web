@@ -609,7 +609,7 @@ function render_controls_modal(page) {
     </div>
     `)
 
-    if (page['unitType'] == "Brayns.Shaper.Systems.Confirm")
+    if ((page['unitType'] == "Brayns.Shaper.Systems.Confirm") || (page['unitType'] == "Brayns.Shaper.Systems.Message"))
         div.find('.modal-dialog').addClass('modal-lg')
     else
         div.find('.modal-dialog').addClass('modal-xl')
@@ -1570,7 +1570,7 @@ function render_input_html(ctl, parent, page, schema) {
 }
 
 function render_input(ctl, parent, page, schema) {
-    var inp = $(`<input class="form-control form-control-sm" autocomplete="off" role="presentation">`)
+    var inp = $(`<input class="form-control form-control-sm" autocomplete="new-password" role="presentation">`)
 
     if (ctl['inputType'] == 'Password')
         inp.attr('type', 'password')
