@@ -34,6 +34,9 @@ var session_id = '';
  */
 
 function rpc_enqueue(request, callback) {
+    if (client_status['network_error'])
+        return
+
     client_status['request_queue'].push({
         'request': request,
         'callback': callback
@@ -163,7 +166,7 @@ function dispatch_chunk(obj) {
     if (obj['type'] == 'exception') {
         if (obj['code'] == 6)           // E_INVALID_SESSION
             client_status['network_error'] = true
-        
+
         show_error(obj)
         return
     }
@@ -263,6 +266,8 @@ function toggle_row_select(row, selected) {
     if (selected) {
         grp.find('.table-row-selector').show()
 
+        $('#control-sidebar').ControlSidebar('show')
+
     } else {
         var hasOne = false
         grp.find('.table-row-selector').find('input').each(function (i, e) {
@@ -272,6 +277,8 @@ function toggle_row_select(row, selected) {
 
         if (!hasOne)
             grp.find('.table-row-selector').hide()
+
+        $('#control-sidebar').ControlSidebar('collapse')
     }
 }
 
@@ -352,7 +359,9 @@ function handle_data_grid(data_grid, grid, obj) {
         if ($(e).prop('codeName'))
             cols.push({
                 'codeName': $(e).prop('codeName'),
-                'fieldType': $(e).prop('fieldType')
+                'fieldType': $(e).prop('fieldType'),
+                'isLink': $(e).prop('isLink'),
+                'fieldId': $(e).prop('fieldId')
             })
     })
 
@@ -404,7 +413,39 @@ function handle_data_grid(data_grid, grid, obj) {
 
             for (var j = 0; j < cols.length; j++) {
                 var col = $(`<td>`)
-                col.html(data_grid[i][cols[j].codeName]['fValue'])
+
+                var content = data_grid[i][cols[j].codeName]['fValue']
+
+                if (cols[j].isLink) {
+                    var a = $(`<a>`)
+                    a.attr('href', '#')
+                    a.prop('fieldId', cols[j].fieldId)
+                    a.html(content)
+                    col.append(a)
+
+                    a.on('click', function (e) {
+                        var grp = recurse_parent($(e.target), 'page-id')
+                        var row = recurse_parent($(e.target), 'data-index')
+
+                        toggle_grid_select(grp, false)
+                        
+                        rpc_enqueue({
+                            'type': 'request',
+                            'objectid': grp.attr('page-id'),
+                            'method': 'ControlInvoke',
+                            'arguments': {
+                                'controlid': $(e.target).prop('fieldId'),
+                                'method': 'Trigger',
+                                'args': {
+                                    'row': row.attr('data-index') * 1
+                                }
+                            }
+                        })
+                    })
+
+                } else
+                    col.html(content)
+
                 if ((cols[j].fieldType == 'DECIMAL') || (cols[j].fieldType == 'INTEGER'))
                     col.css('text-align', 'right')
                 col.css('padding-top', '6px')
@@ -551,6 +592,11 @@ function close_page(pageid) {
 
 
             })
+
+            // remove detail area
+            $('#detail-area').empty()
+            $('#control-sidebar').ControlSidebar('collapse')
+            $('#control-sidebar-li').remove()
         }
     }
 
@@ -561,7 +607,11 @@ function run_page(obj) {
     client_status['pages'].push(obj)
 
     if (obj['parentId']) {
-        render_controls_content_subpage(obj)
+        if (obj['parentType'] == "ContentArea")
+            render_controls_content_subpage(obj)
+        else if (obj['parentType'] == "DetailArea")
+            render_controls_detail_subpage(obj)
+
         return
     }
 
@@ -704,12 +754,154 @@ function render_controls_content(page) {
         else if (ctl['controlType'] == 'ActionArea')
             render_actionarea_content(ctl, page)
 
+        else if (ctl['controlType'] == 'DetailArea')
+            render_detailarea_content(ctl, page)
+
         else if (ctl['controlType'] == 'ContentArea')
             render_contentarea_content(ctl, page)
 
         else if (ctl['controlType'] == 'Footer')
             render_footer(ctl, page)
     }
+}
+
+/*
+ *  >>> DETAIL AREA
+ *
+ */
+
+function render_detailarea_content(ctl, page) {
+    var li = $(`
+        <li class="nav-item" id="control-sidebar-li">
+            <a class="nav-link" data-widget="control-sidebar" id="control-sidebar" data-controlsidebar-slide="true" href="javascript:;" role="button">
+                <i class="fas fa-th-large"></i>
+            </a>   
+        </li>
+    `)
+    $('#menu-right').append(li)
+
+    var parent = $('#detail-area')
+    parent.empty()
+
+    for (var c in ctl['controls']) {
+        var ctl2 = ctl['controls'][c]
+
+        if (ctl2['controlType'] == 'Subpage')
+            render_subpage_parent(ctl2, parent, page)
+    }
+}
+
+function render_controls_detail_subpage(page) {
+    var parent = $('[ctl-id="' + page['parentId'] + '"]').first()
+    parent.attr('id', page['id'])
+
+    // search content area
+    var cArea = null
+    for (var c in page['controls']) {
+        var ctl = page['controls'][c]
+
+        if (ctl['controlType'] == 'ContentArea') {
+            cArea = ctl
+            break
+        }
+    }
+    if (!cArea)
+        return
+
+    // supported controls
+    for (var c in cArea['controls']) {
+        var ctl = cArea['controls'][c]
+
+        if (ctl['controlType'] == 'Grid')
+            render_grid_detail(ctl, parent, page)
+        else if (ctl['controlType'] == 'Group')
+            render_group_parent(ctl, parent, page)
+    }
+
+    // actions after controls
+    for (var c in page['controls']) {
+        var ctl = page['controls'][c]
+
+        if (ctl['controlType'] == 'ActionArea') {
+            var head = parent.find('.card-header')
+            render_actionarea_card(ctl, head, page)
+        }
+    }
+}
+
+function render_grid_detail(ctl, parent, page) {
+    var grp = $(`
+        <div class="card card-light">
+            <div class="card-header">
+                <h3 class="card-title"></h3>
+                <div class="card-tools">
+                    <button type="button" class="btn btn-tool" data-card-widget="collapse">
+                        <i class="fas fa-minus"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="card-body table-responsive p-0" style="overflow-x: hidden">
+                <table class="table table-hover text-nowrap">
+                    <thead>
+                        <tr></tr>
+                    </thead>
+                    <tbody>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `)
+
+    grp.attr('is-grid', '1')
+    grp.attr('ctl-id', ctl['id'])
+    grp.attr('page-id', page['id'])
+    grp.prop('labelNodata', ctl['labelNodata'])
+    grp.appendTo(parent)
+
+    var head = grp.find("thead").find("tr")
+
+    for (var c in ctl['controls']) {
+        var ctl2 = ctl['controls'][c]
+
+        if (ctl2['controlType'] == 'Field') {
+            var th = $(`<th>`)
+
+            if ((ctl2['fieldType'] == 'DECIMAL') || (ctl2['fieldType'] == 'INTEGER'))
+                th.css('text-align', 'right')
+
+            th.html(ctl2['caption'])
+
+            th.prop('fieldId', ctl2['id'])
+            th.prop('isLink', ctl2['isLink'])
+            th.prop('codeName', ctl2['codename'])
+            th.prop('fieldType', ctl2['fieldType'])
+            th.css('padding-top', '6px')
+            th.css('text-wrap', 'wrap')
+            th.css('padding-bottom', '6px')
+            head.append(th)
+        }
+    }
+}
+
+function render_field_detail(ctl, parent, page, ctlParent) {
+    var schema = get_schema_field(page, ctl['codename'])
+
+    var row = $(`<div>`)
+    row.addClass("row")
+    row.appendTo(parent)
+
+
+    var label = $(`<div class="col-form-label font-weight-normal" style="padding-top: 0px" />`)
+    label.addClass('col-sm')
+    label.html(ctl['caption'] + ':')
+    label.appendTo(row)
+
+    ctl['readOnly'] = true;
+
+    var field = $(`<div />`)
+    field.addClass('col-sm')
+    render_input_html(ctl, field, page, schema)
+    field.appendTo(row)
 }
 
 /*
@@ -818,11 +1010,9 @@ function render_appcenter(ctl, page) {
 }
 
 function render_footer(ctl) {
-    var wrap = $(".wrapper")
-    if (wrap.length == 0) return;
-    var foot = $(`<footer class="main-footer"></footer>`)
-    foot.appendTo(wrap);
+    var foot = $(`.main-footer`)
     foot.html(ctl['caption'])
+    foot.show()
 }
 
 function render_indicator(ctl) {
@@ -1352,7 +1542,9 @@ function render_grid_parent(ctl, parent, page) {
             i.css("font-size", ".75em")
             i.appendTo(th)
             i.hide()
-                
+
+            th.prop('fieldId', ctl2['id'])
+            th.prop('isLink', ctl2['isLink'])
             th.prop('codeName', ctl2['codename'])
             th.prop('fieldType', ctl2['fieldType'])
             th.css('padding-top', '6px')
@@ -1367,41 +1559,18 @@ function render_grid_parent(ctl, parent, page) {
         if ($(e.target).prop('tagName') == "INPUT") // switch to change event
             return
 
+        if ($(e.target).prop('tagName') == "A") // open record
+            return
+
         var grp = recurse_parent($(e.target), 'ctl-id')
         var row = recurse_parent($(e.target), 'data-index')
         if (!row) return
 
         var inp = row.find('.table-row-selector').find('input')
-        var tgt = $(e.target)
-
-        if (e.detail > 1) {
-            // is doubleclick
-            tgt.prop('in-doubleclick', true)
-
-            toggle_grid_select(grp, false)
-            toggle_row_select(row, true)
-
-            rpc_enqueue({
-                'type': 'request',
-                'objectid': grp.attr('page-id'),
-                'method': 'OpenRecord',
-                'arguments': {
-                    'row': row.attr('data-index') * 1
-                }
-            })
-
-        } else {
-            setTimeout(function () {
-                if (tgt.prop('in-doubleclick')) {
-                    tgt.prop('in-doubleclick', false)
-                    return
-                }
-
-                // is single click
-                toggle_row_select(row, !inp.prop('checked'))
-                send_selection(grp)
-            }, 100)
-        }
+        var c = !inp.prop('checked')
+        toggle_grid_select(grp, false)
+        toggle_row_select(row, c)
+        send_selection(grp)
     })
 }
 
@@ -1439,6 +1608,9 @@ function render_group_parent(ctl, parent, page) {
         grp.find('.card-header').append(tools)
     }
 
+    if (page['parentType'] == "DetailArea")
+        grp.find(".card-body").css('padding', '8px')
+
     grp.appendTo(parent)
     grp.find('.card-title').html(ctl['caption'])
     var body = grp.find('.card-body')
@@ -1448,8 +1620,12 @@ function render_group_parent(ctl, parent, page) {
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
-        if (ctl2['controlType'] == 'Field')
-            render_field_parent(ctl2, body, page, ctl)
+        if (ctl2['controlType'] == 'Field') {
+            if (page['parentType'] == "DetailArea")
+                render_field_detail(ctl2, body, page, ctl)
+            else
+                render_field_parent(ctl2, body, page, ctl)
+        }
         else if (ctl2['controlType'] == 'Action')
             actions.push(ctl2)
     }
@@ -1507,6 +1683,11 @@ function render_checkbox(ctl, parent, page, schema) {
 }
 
 function render_select(ctl, parent, page, schema) {
+    if (ctl['readOnly']) {
+        render_input(ctl, parent, page, schema)
+        return
+    }
+
     var sel = $(`<select class="form-control custom-select-sm">`)
     sel.css('font-size', '.875rem')
 
@@ -1570,7 +1751,10 @@ function render_input_html(ctl, parent, page, schema) {
 }
 
 function render_input(ctl, parent, page, schema) {
-    var inp = $(`<input class="form-control form-control-sm" autocomplete="new-password" role="presentation">`)
+    var inp = $(`<input class="form-control form-control-sm" role="presentation">`)
+
+    if (page['pageType'] != "Login")
+        inp.attr('autocomplete', 'new-password')
 
     if (ctl['inputType'] == 'Password')
         inp.attr('type', 'password')
@@ -1631,7 +1815,7 @@ function render_input(ctl, parent, page, schema) {
         })
     }
 
-    if (!group) 
+    if (!group)
         inp.appendTo(parent)
 }
 
@@ -2263,6 +2447,12 @@ function show_start() {
                     </div>
                 </section>
             </div>
+
+            <footer class="main-footer" style='display: none'></footer>
+
+            <aside class="control-sidebar control-sidebar-light" id="detail-area" style='bottom: 0px; padding: 4px; padding-top: 8px'>
+                
+            </aside>
         </div>
     `)
 
@@ -2271,7 +2461,9 @@ function show_start() {
     $('body').removeClass()
     $('body').addClass('hold-transition')
     $('body').addClass('layout-fixed')
+    $('body').addClass('layout-navbar-fixed')
     $('body').addClass('sidebar-collapse')
+    $('body').addClass('control-sidebar-push-slide')
     $('body').addClass('text-sm')
     $('body').css('min-height', '')
     $('#indicator').css('display', 'none')
