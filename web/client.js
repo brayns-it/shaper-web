@@ -361,21 +361,25 @@ function handle_data_grid(data_grid, grid, obj) {
                 'codeName': $(e).prop('codeName'),
                 'fieldType': $(e).prop('fieldType'),
                 'isLink': $(e).prop('isLink'),
-                'fieldId': $(e).prop('fieldId')
+                'fieldId': $(e).prop('fieldId'),
+                'index': i
             })
     })
 
     var tbody = grid.find("tbody")
 
     if (obj['selectedrow'] > -1) {
-        var row = tbody.find('[data-index="' + obj['selectedrow'] + '"]')
-        var i = 0;
-        row.find('td').each(function (i, e) {
-            if ($(e).prop('codeName')) {
-                $(e).html(data_grid[0][cols[i].codeName]['fValue'])
-                i++
-            }
-        })
+        var row = tbody.find('[data-index="' + (obj['selectedrow'] * 1) + '"]')
+
+        for (var j = 0; j < cols.length; j++) {
+            var td = row.find('td').eq(cols[j].index)
+            var content = data_grid[0][cols[j].codeName]['fValue']
+
+            if (cols[j].isLink)
+                td.find('a').html(content)
+            else
+                td.html(content)
+        }
 
         return
     }
@@ -428,7 +432,7 @@ function handle_data_grid(data_grid, grid, obj) {
                         var row = recurse_parent($(e.target), 'data-index')
 
                         toggle_grid_select(grp, false)
-                        
+
                         rpc_enqueue({
                             'type': 'request',
                             'objectid': grp.attr('page-id'),
@@ -2414,8 +2418,7 @@ function show_start() {
 
             <aside class="main-sidebar sidebar-dark-primary elevation-4">
                 <div class="brand-link">
-                    <img src="public/client/logo30w.png" class="brand-image">
-                    <span class="brand-text font-weight-light" id="sideTitle"></span>
+                    <span class="brand-text font-weight-light" id="sideTitle" style="display: none"></span>
                 </div>
 
                 <div class="sidebar">
@@ -2467,13 +2470,48 @@ function show_start() {
     $('body').addClass('text-sm')
     $('body').css('min-height', '')
     $('#indicator').css('display', 'none')
+
+    // brand logo
+    var img1 = $(`<img src='public/client/logo250w.png' class='brand-image'>`)
+    img1.css('margin-left', '8px')
+    img1.on('error', function (e) {
+        $(e.target).hide()
+
+        var img2 = $(`<img src='public/client/logo30w.png' class='brand-image'>`)
+        img2.css('margin-left', '8px')
+        img2.on('error', function (e) {
+            $(e.target).hide()
+            $('#sideTitle').css('margin-left', '8px')
+        })
+        $('.brand-link').prepend(img2)
+
+        $('#sideTitle').show()
+    })
+    $('.brand-link').prepend(img1)
 }
 
 function show_login() {
     remove_wrappers()
 
     var bw = $(`
-        <div class="login-box" id="container">
+        <div class="wrapper">
+            <div class="content-wrapper">
+                <div class="content-header">
+                    <div class="container" style="width: 360px; margin-top: 50px; margin-bottom: 20px">
+                        <div class="row mb-2 justify-content-sm-center">
+                            <div class="col-sm-auto">
+                                <img src="public/client/logo300.png">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="content">
+                    <div class="container" id="container" style="width: 360px">
+
+                    </div>
+                </div>
+            </div>
         </div>
     `)
 
@@ -2481,9 +2519,10 @@ function show_login() {
     $('body').prop('pageType', 'login')
     $('body').removeClass()
     $('body').addClass('hold-transition')
-    $('body').addClass('login-page')
+    $('body').addClass('layout-top-nav')
     $('body').addClass('text-sm')
-    $('body').css('min-height', '500px')
+    $('body').css('min-height', '')
+    $('#indicator').css('display', 'none')
 }
 
 /*
