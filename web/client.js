@@ -2499,8 +2499,7 @@ function show_login() {
                 <div class="content-header">
                     <div class="container" style="width: 360px; margin-top: 50px; margin-bottom: 20px">
                         <div class="row mb-2 justify-content-sm-center">
-                            <div class="col-sm-auto">
-                                <img src="public/client/logo300.png">
+                            <div class="col-sm-auto" id="loginLogo">
                             </div>
                         </div>
                     </div>
@@ -2523,6 +2522,13 @@ function show_login() {
     $('body').addClass('text-sm')
     $('body').css('min-height', '')
     $('#indicator').css('display', 'none')
+
+    // login logo
+    var img1 = $(`<img src='public/client/logo300.png'>`)
+    img1.on('error', function (e) {
+        $(e.target).hide()
+    })
+    img1.appendTo($("#loginLogo"))
 }
 
 /*
