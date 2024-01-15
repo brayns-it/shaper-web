@@ -192,6 +192,11 @@ function dispatch_chunk(obj) {
             return
         }
 
+        if (obj['action'] == 'redrawControl') {
+            redraw_control(obj)
+            return
+        }
+        
         if (obj['action'] == 'property') {
             if (obj['target'] == 'page')
                 handle_page_properties(obj)
@@ -605,6 +610,19 @@ function close_page(pageid) {
     }
 
     pop_page(pageid)
+}
+
+function redraw_control(obj) {
+    var ctl = $('[ctl-id="' + obj['id'] + '"]').first()
+    ctl.remove()
+
+    var args = ctl.prop('render-args')
+    var arg0 = (args.length > 0) ? args[0] : null
+    var arg1 = (args.length > 1) ? args[1] : null
+    var arg2 = (args.length > 2) ? args[2] : null
+    var arg3 = (args.length > 3) ? args[3] : null
+
+    window[ctl.prop('render-function')](obj, arg0, arg1, arg2, arg3)
 }
 
 function run_page(obj) {
@@ -1595,6 +1613,9 @@ function render_group_parent(ctl, parent, page) {
             </div>
         </div>
     `)
+    grp.attr('ctl-id', ctl['id'])
+    grp.prop('render-args', [parent, page])
+    grp.prop('render-function', 'render_group_parent')
 
     if (ctl['primary'])
         grp.addClass('card-primary')
@@ -1624,7 +1645,9 @@ function render_group_parent(ctl, parent, page) {
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
 
-        if (ctl2['controlType'] == 'Field') {
+        if (ctl2['controlType'] == 'Html')
+            render_html_parent(ctl2, body, page)
+        else if (ctl2['controlType'] == 'Field') {
             if (page['parentType'] == "DetailArea")
                 render_field_detail(ctl2, body, page, ctl)
             else
