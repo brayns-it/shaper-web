@@ -164,9 +164,11 @@ function handle_chunk(response) {
 
 function dispatch_chunk(obj) {
     if (obj['type'] == 'exception') {
-        if (obj['code'] == 6)           // E_INVALID_SESSION
+        if ((obj['code'] == 6) ||          // E_INVALID_SESSION
+            (obj['code'] == 1) ||          // E_SYSTEM_IN_MAINTENANCE
+            (obj['code'] == 5))            // E_SYSTEM_NOT_READY
             client_status['network_error'] = true
-
+            
         show_error(obj)
         return
     }
