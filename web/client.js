@@ -168,7 +168,7 @@ function dispatch_chunk(obj) {
             (obj['code'] == 1) ||          // E_SYSTEM_IN_MAINTENANCE
             (obj['code'] == 5))            // E_SYSTEM_NOT_READY
             client_status['network_error'] = true
-            
+
         show_error(obj)
         return
     }
@@ -198,7 +198,7 @@ function dispatch_chunk(obj) {
             redraw_control(obj)
             return
         }
-        
+
         if (obj['action'] == 'property') {
             if (obj['target'] == 'page')
                 handle_page_properties(obj)
@@ -206,7 +206,10 @@ function dispatch_chunk(obj) {
         }
 
         if (obj['action'] == 'reload') {
-            location.reload()
+            if (obj['goHomepage'])
+                location.href = location.href.split("?")[0]
+            else
+                location.reload()
             return
         }
 
@@ -507,7 +510,6 @@ function handle_shortcut(evt) {
 
             var c = $('[ctl-id="' + page["shortcuts"][k] + '"]').first()
             if (c.length > 0) {
-                console.log(client_status['last_focus'])
                 if (client_status['last_focus'])
                     client_status['last_focus'].trigger('blur')
                 action_trigger(c)
@@ -572,7 +574,10 @@ function close_page(pageid) {
             })
 
             // restore title
-            var title = $('.content-wrapper').find('.content-header').find('#title')
+            var head = $('.content-wrapper').find('.content-header')
+            head.find('.container-fluid').show()
+
+            var title = head.find('#title')
             title.children().each(function (i, e) {
                 if ($(e).attr('page-id') == pageid) {
                     if ($(e).prev().prop('is-separator'))
@@ -661,8 +666,15 @@ function run_page(obj) {
 
     }
 
-    $('input').first().trigger('focus')
+    var pageRow = $('#' + obj['id'])
+    pageRow.find('input').first().trigger('focus')
 
+    var head = $('.content-wrapper').find('.content-header').find('.container-fluid')
+    if (obj['showHeader'])
+        head.show()
+    else
+        head.hide()
+        
     $('body').css('height', '');
     $('body').Layout('init')
 }
@@ -966,21 +978,22 @@ function render_contentarea_content(ctl, page) {
 
     var carea = $(`
         <div class="row">
-            <div id="left-content">
-            </div>
-            <div id="right-content">
+            <div id="row-content">
             </div>
         </div>
     `)
 
     carea.prop('is-content', true)
     carea.attr('id', page['id'])
-    carea.find('#left-content').addClass('col-12')
+    carea.attr('ctl-id', ctl['id'])
+    carea.prop('render-function', 'render_contentarea_content')
+    carea.prop('render-args', [page])
     container.append(carea)
 
-    var left = carea.find('#left-content')
+    var cnt = carea.find('#row-content')
+    carea.find('#row-content').addClass('col-12')
 
-    render_contentarea_controls(ctl, left, page)
+    render_contentarea_controls(ctl, cnt, page)
 }
 
 function render_contentarea_controls(ctl, parent, page) {
@@ -1655,8 +1668,10 @@ function render_group_parent(ctl, parent, page) {
             else
                 render_field_parent(ctl2, body, page, ctl)
         }
+        else if (ctl2['controlType'] == 'ActionGroup')
+            render_actiongroup_parent(ctl2, body, page)
         else if (ctl2['controlType'] == 'Action')
-            actions.push(ctl2)
+            actions.unshift(ctl2)
     }
 
     if (actions.length > 0) {
@@ -1934,8 +1949,14 @@ function render_button_parent(ctl, parent, page) {
     bnt.attr('ctl-id', ctl['id'])
     bnt.attr('page-id', page['id'])
 
-    if (parent.hasClass('card-footer'))
+    if (parent.hasClass('card-footer')) {
         bnt.addClass('float-right')
+
+        var space = $(`<span>`)
+        space.html('&nbsp;')
+        space.addClass('float-right')
+        space.appendTo(parent)
+    }
 
     parent.append(bnt)
 
@@ -1975,6 +1996,43 @@ function render_button_button(ctl, parent, page) {
         var a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
+}
+
+function render_actiongroup_parent(ctl, parent, page) {
+    var row = $(`<div>`)
+    row.addClass("row")
+    row.appendTo(parent)
+
+    for (var c in ctl['controls']) {
+        var ctl2 = ctl['controls'][c]
+
+        if (ctl2['controlType'] == 'Action')
+            render_action_actiongroup(ctl2, row, page)
+    }
+}
+
+function render_action_actiongroup(ctl, parent, page) {
+    var a = $(`<a>`)
+    a.addClass("btn")
+    a.addClass("btn-app")
+    a.appendTo(parent)
+    a.attr('ctl-id', ctl['id'])
+    a.attr('page-id', page['id'])
+    a.attr('id', ctl['id'])
+    a.on('click', function (e) {
+        var a2 = recurse_parent($(e.target), 'ctl-id')
+        action_trigger(a2)
+    })
+
+    if (ctl['icon']) {
+        var i = $(`<i>`)
+        i.addClass(ctl['icon'])
+        i.appendTo(a)
+    }
+
+    var s = $(`<span>`)
+    s.html(ctl['caption'])
+    s.appendTo(a)
 }
 
 /*
@@ -2336,11 +2394,15 @@ function show_error(obj) {
 function core_initialize() {
     $('body').prop("pageType", '')
 
+    var psrc = new URLSearchParams(window.location.search)
+
     rpc_enqueue({
         'type': 'request',
         'classname': 'Brayns.Shaper.Systems.ClientManagement',
-        'method': 'Initialize',
-        'arguments': {}
+        'method': 'Start',
+        'arguments': {
+            'page': psrc.has('page') ? psrc.get('page') : ''
+        }
     }, function (e) {
         if (e)
             session_id = e['value']
@@ -2462,7 +2524,7 @@ function show_start() {
 
             <div class="content-wrapper">
                 <div class="content-header">
-                    <div class="content-header">
+                    <div class="container-fluid">
                         <div class="row mb-2">
                             <div class="col-sm-12">
                                 <h1 class="m-0" id="title"></h1>
