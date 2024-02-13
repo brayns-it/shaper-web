@@ -497,25 +497,20 @@ function handle_shortcut(evt) {
         return;
     }
 
-    if (client_status['pages'].length == 0) return
-
-    var page = client_status['pages'][client_status['pages'].length - 1]
-
-    if (evt.ctrlKey || evt.altKey || is_shortcut(evt)) {
-        for (var k in page["shortcuts"]) {
-            if (evt.ctrlKey && (k.indexOf("Ctrl+") == -1)) continue
-            if (evt.altKey && (k.indexOf("Alt+") == -1)) continue
-            if (evt.shiftKey && (k.indexOf("Shift+") == -1)) continue
-            if (k.indexOf(evt.code) == -1) continue
-
-            var c = $('[ctl-id="' + page["shortcuts"][k] + '"]').first()
-            if (c.length > 0) {
-                if (client_status['last_focus'])
-                    client_status['last_focus'].trigger('blur')
-                action_trigger(c)
-                evt.preventDefault()
-                return false
-            }
+    if (is_shortcut(evt)) {
+        var k = ""
+        if (evt.ctrlKey) k += "Ctrl+" 
+        if (evt.altKey) k += "Alt+"
+        if (evt.shiftKey) k += "Shift+"
+        k += evt.code
+        
+        var c = $('[ctl-shortcut="' + k + '"]').first()
+        if (c.length > 0) {
+            if (client_status['last_focus'])
+                client_status['last_focus'].trigger('blur')
+            action_trigger(c)
+            evt.preventDefault()
+            return false
         }
     }
 }
@@ -1947,6 +1942,7 @@ function render_button_parent(ctl, parent, page) {
     `)
     bnt.find('button').html(ctl['caption'])
     bnt.attr('ctl-id', ctl['id'])
+    bnt.attr('ctl-shortcut', ctl['shortcut'])
     bnt.attr('page-id', page['id'])
 
     if (parent.hasClass('card-footer')) {
