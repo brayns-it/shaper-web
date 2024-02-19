@@ -481,15 +481,15 @@ function handle_data_grid(data_grid, grid, obj) {
 function is_shortcut(evt) {
     if (evt.ctrlKey) return true
     if (evt.altKey) return true
-    if ((evt.code >= "F1") && (evt.code <= "F12")) return true
-    if (evt.code == "Enter") return true
-    if (evt.code == "Escape") return true
+    if ((evt.key >= "F1") && (evt.key <= "F12")) return true
+    if (evt.key == "Enter") return true
+    if (evt.key == "Escape") return true
     return false
 }
 
 function handle_shortcut(evt) {
     if (client_status['modals'].length > 0) {
-        if (evt.code == 'Escape') {
+        if (evt.key == 'Escape') {
             client_status['modals'][client_status['modals'].length - 1].modal('hide')
             evt.preventDefault()
             return false
@@ -502,7 +502,7 @@ function handle_shortcut(evt) {
         if (evt.ctrlKey) k += "Ctrl+" 
         if (evt.altKey) k += "Alt+"
         if (evt.shiftKey) k += "Shift+"
-        k += evt.code
+        k += evt.key
         
         var c = $('[ctl-shortcut="' + k + '"]').first()
         if (c.length > 0) {
@@ -1061,6 +1061,10 @@ function render_indicator(ctl) {
     li.css('padding-left', '16px')
     li.css('padding-right', '16px')
     li.find('.badge').html(capt)
+    li.css('cursor', 'pointer')
+    li.on('click', function () {
+        document.documentElement.requestFullscreen()
+    })
     $('#menu-right').append(li)
 }
 
@@ -1482,7 +1486,7 @@ function render_grid_parent(ctl, parent, page) {
 
     searchBox.attr('placeholder', ctl['label_search'])
     searchBox.on('keydown', function (evt) {
-        if ((evt.code == 'Enter') || (evt.code == 'NumpadEnter')) {
+        if ((evt.key == 'Enter') || (evt.key == 'NumpadEnter')) {
             var grp = recurse_parent($(evt.target), 'page-id')
             var btns = grp.find('#searchButton')
             btns.trigger('click')
@@ -1775,7 +1779,7 @@ function render_input_html(ctl, parent, page, schema) {
 
     if (ctl['readOnly']) {
         inp = $(`<div>`)
-
+        inp.addClass('text' + size_to_suffix(ctl["inputSize"]))
     } else {
         // TODO
     }
@@ -1790,8 +1794,9 @@ function render_input_html(ctl, parent, page, schema) {
 }
 
 function render_input(ctl, parent, page, schema) {
-    var inp = $(`<input class="form-control form-control-sm" role="presentation">`)
-
+    var inp = $(`<input class="form-control" role="presentation">`)
+    inp.addClass("form-control" + size_to_suffix(ctl["inputSize"]))
+    
     if (page['pageType'] != "Login")
         inp.attr('autocomplete', 'new-password')
 
@@ -1831,6 +1836,9 @@ function render_input(ctl, parent, page, schema) {
         })
     })
 
+    if (ctl['placeholder'])
+        inp.attr("placeholder", ctl["caption"])
+
     var group = null
     if (schema["fieldType"] == "DATE") {
         group = $(`<div class="input-group date" data-target-input="nearest">`)
@@ -1865,7 +1873,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
 
     var row = parent.children(':last-child')
     if (row.length > 0) {
-        if ((ctlParent['labelOrientation'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two'))
+        if ((ctlParent['labelStyle'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two'))
             if (row.prop('ctl-count') == 1)
                 newRow = false
 
@@ -1885,7 +1893,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     var grp = $('<div class="form-group">')
     grp.css('margin-bottom', '0px')
 
-    if (ctlParent['labelOrientation'] == 'Horizontal')
+    if (ctlParent['labelStyle'] == 'Horizontal')
         grp.addClass("row")
     if (ctlParent['fieldPerRow'] == 'One')
         grp.addClass("col-sm-12")
@@ -1896,25 +1904,28 @@ function render_field_parent(ctl, parent, page, ctlParent) {
     var hasLabel = true
     if (schema["fieldType"] == "BOOLEAN")
         hasLabel = false
-    if (ctl['inputType'] == "Html")
+    if (!ctl['showCaption'])
         hasLabel = false
-
+    if (ctlParent['labelStyle'] == "Placeholder")
+        hasLabel = false
+  
     if (hasLabel) {
         var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
         label.attr('for', ctl['id'])
-        if (ctlParent['labelOrientation'] == 'Horizontal')
-            label.addClass('col-sm-4')
+        if (ctlParent['labelStyle'] == 'Horizontal')
+            label.addClass('col-4')
         else
-            label.addClass('col-sm-12')
+            label.addClass('col-12')
+        label.addClass('text' + size_to_suffix(ctl["inputSize"]))
         label.html(ctl['caption'] + ':')
         label.appendTo(grp)
     }
 
     var field = $(`<div />`)
-    if ((ctlParent['labelOrientation'] == 'Horizontal') && hasLabel)
-        field.addClass('col-sm-8')
+    if ((ctlParent['labelStyle'] == 'Horizontal') && hasLabel)
+        field.addClass('col-8')
     else
-        field.addClass('col-sm-12')
+        field.addClass('col-12')
 
     if (schema["fieldType"] == "OPTION")
         render_select(ctl, field, page, schema)
@@ -2264,6 +2275,16 @@ function render_action_action_navigationpane(ctl, parent, page) {
  *  >>> COMMON
  *
  */
+
+function size_to_suffix(size) {
+    if ((size == "ExtraSmall") || (size == "Small"))
+        return "-sm";
+
+    if ((size == "ExtraLarge") || (size == "Large"))
+        return "-lg";
+
+    return "";
+}
 
 function set_title(title) {
     if (client_status['application_name'] > '')
