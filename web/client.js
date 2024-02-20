@@ -223,6 +223,11 @@ function dispatch_chunk(obj) {
             return
         }
 
+        if (obj['action'] == 'focusControl') {
+            var ctl = $('[ctl-id="' + obj['controlId'] + '"]').first()
+            ctl.trigger('focus')
+            return
+        }
     }
 }
 
@@ -482,6 +487,7 @@ function is_shortcut(evt) {
     if (evt.ctrlKey) return true
     if (evt.altKey) return true
     if ((evt.key >= "F1") && (evt.key <= "F12")) return true
+    if (evt.key.startsWith("Arrow")) return true
     if (evt.key == "Enter") return true
     if (evt.key == "Escape") return true
     return false
@@ -489,7 +495,7 @@ function is_shortcut(evt) {
 
 function handle_shortcut(evt) {
     if (client_status['modals'].length > 0) {
-        if (evt.key == 'Escape') {
+        if (evt.key == 'Enter') {
             client_status['modals'][client_status['modals'].length - 1].modal('hide')
             evt.preventDefault()
             return false
@@ -1652,6 +1658,7 @@ function render_group_parent(ctl, parent, page) {
 
     grp.appendTo(parent)
     grp.find('.card-title').html(ctl['caption'])
+    grp.find('.card-title').addClass('text' + size_to_suffix(ctl['fontSize']))
     var body = grp.find('.card-body')
 
     var actions = []
@@ -1779,7 +1786,7 @@ function render_input_html(ctl, parent, page, schema) {
 
     if (ctl['readOnly']) {
         inp = $(`<div>`)
-        inp.addClass('text' + size_to_suffix(ctl["inputSize"]))
+        inp.addClass('text' + size_to_suffix(ctl["fontSize"]))
     } else {
         // TODO
     }
@@ -1795,7 +1802,7 @@ function render_input_html(ctl, parent, page, schema) {
 
 function render_input(ctl, parent, page, schema) {
     var inp = $(`<input class="form-control" role="presentation">`)
-    inp.addClass("form-control" + size_to_suffix(ctl["inputSize"]))
+    inp.addClass("form-control" + size_to_suffix(ctl["fontSize"]))
     
     if (page['pageType'] != "Login")
         inp.attr('autocomplete', 'new-password')
@@ -1916,8 +1923,9 @@ function render_field_parent(ctl, parent, page, ctlParent) {
             label.addClass('col-4')
         else
             label.addClass('col-12')
-        label.addClass('text' + size_to_suffix(ctl["inputSize"]))
-        label.html(ctl['caption'] + ':')
+        label.addClass('text' + size_to_suffix(ctl["fontSize"]))
+        if (ctl['caption'])
+            label.html(ctl['caption'] + ':')
         label.appendTo(grp)
     }
 
