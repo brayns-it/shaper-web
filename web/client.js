@@ -60,7 +60,6 @@ function rpc_flush() {
 function rpc_post(request, callback, ignore_response) {
     var start = 0
     var resobj = null
-
     debug_log(">> " + JSON.stringify(request))
 
     if (ignore_response) {
@@ -68,7 +67,8 @@ function rpc_post(request, callback, ignore_response) {
             url: '/rpc',
             headers: {
                 'X-Rpc-WebClient': '1',
-                'X-Rpc-SessionId': session_id
+                'X-Rpc-SessionId': session_id,
+                'X-Rpc-Cancelation': '1',
             },
             type: 'post',
             contentType: 'application/json',
@@ -505,11 +505,11 @@ function handle_shortcut(evt) {
 
     if (is_shortcut(evt)) {
         var k = ""
-        if (evt.ctrlKey) k += "Ctrl+" 
+        if (evt.ctrlKey) k += "Ctrl+"
         if (evt.altKey) k += "Alt+"
         if (evt.shiftKey) k += "Shift+"
         k += evt.key
-        
+
         var c = $('[ctl-shortcut="' + k + '"]').first()
         if (c.length > 0) {
             if (client_status['last_focus'])
@@ -675,7 +675,7 @@ function run_page(obj) {
         head.show()
     else
         head.hide()
-        
+
     $('body').css('height', '');
     $('body').Layout('init')
 }
@@ -696,13 +696,16 @@ function render_controls_modal(page) {
     </div>
     `)
 
-    if ((page['unitType'] == "Brayns.Shaper.Systems.Confirm") || (page['unitType'] == "Brayns.Shaper.Systems.Message"))
+    if ((page['unitType'] == "Brayns.Shaper.Systems.Confirm") || (page['unitType'] == "Brayns.Shaper.Systems.Message") ||
+        (page['unitType'] == "Brayns.Shaper.Systems.Progress"))
         div.find('.modal-dialog').addClass('modal-lg')
     else
         div.find('.modal-dialog').addClass('modal-xl')
 
+    div.prop('unitType', page['unitType'])
     div.attr('id', page['id'])
     div.prop('is-modal', true)
+    div.prop('modal-id', uuidv4())
     div.find('#title').html(page['caption'])
     div.appendTo('body')
 
@@ -723,10 +726,11 @@ function render_controls_modal(page) {
     })
 
     div.on('hidden.bs.modal', function (e) {
-        $(e.target).remove()
+        modal_closing(e)
     })
 
     div.modal('show')
+    client_status['modals'].push(div)
 }
 
 function render_controls_content(page) {
@@ -1321,9 +1325,26 @@ function render_action_notification(ctl, parent, page) {
  *
  */
 
+function modal_closing(e) {
+    var ediv = $(e.target)
+    ediv.remove()
+
+    for (var i = 0; i < client_status['modals'].length; i++)
+        if (client_status['modals'][i].prop('modal-id') == ediv.prop('modal-id')) {
+            client_status['modals'].splice(i, 1)
+            break;
+        }
+
+    if (client_status['last_focus'])
+        client_status['last_focus'].trigger('focus')
+}
+
 function render_contentarea_modal(ctl, parent, page) {
     var hdr = parent.find('.modal-header')
     var div = $(`<div class="modal-body"></div>`)
+    div.attr('ctl-id', ctl['id'])
+    div.prop('render-function', 'render_contentarea_modal')
+    div.prop('render-args', [parent, page])
     hdr.after(div)
 
     render_contentarea_controls(ctl, div, page)
@@ -1803,7 +1824,7 @@ function render_input_html(ctl, parent, page, schema) {
 function render_input(ctl, parent, page, schema) {
     var inp = $(`<input class="form-control" role="presentation">`)
     inp.addClass("form-control" + size_to_suffix(ctl["fontSize"]))
-    
+
     if (page['pageType'] != "Login")
         inp.attr('autocomplete', 'new-password')
 
@@ -1915,7 +1936,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         hasLabel = false
     if (ctlParent['labelStyle'] == "Placeholder")
         hasLabel = false
-  
+
     if (hasLabel) {
         var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
         label.attr('for', ctl['id'])
@@ -2302,7 +2323,7 @@ function set_title(title) {
 }
 
 function action_trigger(obj) {
-    rpc_enqueue({
+    var payload = {
         'type': 'request',
         'objectid': obj.attr('page-id'),
         'method': 'ControlInvoke',
@@ -2310,7 +2331,17 @@ function action_trigger(obj) {
             'controlid': obj.attr('ctl-id'),
             'method': 'Trigger'
         }
-    })
+    }
+
+    if (client_status['modals'].length > 0) {
+        var mod = client_status['modals'][client_status['modals'].length - 1]
+        if ((mod.prop('unitType') == "Brayns.Shaper.Systems.Progress") && (mod.prop('id') == obj.attr('page-id'))) {
+            rpc_post(payload, null, true)
+            return
+        }
+    }
+
+    rpc_enqueue(payload)
 }
 
 function handle_download(obj) {
@@ -2393,17 +2424,7 @@ function show_error(obj) {
         if (client_status['network_error'])
             location.reload()
 
-        var ediv = $(e.target)
-        ediv.remove()
-
-        for (var i = 0; i < client_status['modals'].length; i++)
-            if (client_status['modals'][i].prop('modal-id') == ediv.prop('modal-id')) {
-                client_status['modals'].splice(i, 1)
-                break;
-            }
-
-        if (client_status['last_focus'])
-            client_status['last_focus'].trigger('focus')
+        modal_closing(e)
     })
 
     div.modal('show')
