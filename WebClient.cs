@@ -33,7 +33,7 @@ namespace Brayns.Shaper
             app.MapGet("/", DispatchDefault);
         }
 
-        private static async Task DispatchDefault(HttpContext ctx)
+        private static void DispatchDefault(HttpContext ctx)
         {
             ctx.Response.Redirect("/client");
         }
