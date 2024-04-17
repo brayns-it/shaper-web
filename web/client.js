@@ -3,18 +3,11 @@
  *
  */
 
-var boundary = ''
-for (var i = 0; i < 230; i++)
-    boundary += 'd4015c7b-152e-492e-8e8b-2021248db290'
-boundary += '",'
-
 var client_status = {
     'application_name': '',
     'pages': [],
     'modals': [],
-    'last_focus': null,
-    'request_queue': [],
-    'network_error': false
+    'last_focus': null
 }
 
 function uuidv4() {
@@ -26,140 +19,71 @@ function uuidv4() {
         })
 }
 
-var session_id = '';
+var _ws = null
+var _ws_init_queue = []
+var _ws_callbacks = []
+var _network_error = false
 
 /*
  *  >>> NETWORK
  *
  */
 
-function rpc_enqueue(request, callback) {
-    if (client_status['network_error'])
-        return
+function rpc_cancel() {
+    var jReq = JSON.stringify({
+        'type': 'cancel'
+    }, null, 2)
 
-    client_status['request_queue'].push({
-        'request': request,
-        'callback': callback
-    })
-    if (client_status['request_queue'].length == 1)
-        rpc_flush()
+    debug_log("CANCEL\r\n" + jReq)
+    _ws.send(jReq)
 }
 
-function rpc_continue() {
-    client_status['request_queue'].shift()
-    rpc_flush()
-}
+function rpc_post(request, callback) {
+    if (_ws == null) {
+        var uri = (window.location.protocol.toLowerCase().indexOf("https") > -1) ? "wss://" : "ws://"
+        uri += window.location.host + "/rpc"
 
-function rpc_flush() {
-    if (client_status['request_queue'].length == 0) return
+        var ws_error = function (e) {
+            _network_error = true;
 
-    var item = client_status['request_queue'][0]
-    rpc_post(item['request'], item['callback'])
-}
-
-function rpc_post(request, callback, ignore_response) {
-    var start = 0
-    var resobj = null
-    debug_log(">> " + JSON.stringify(request))
-
-    if (ignore_response) {
-        $.ajax({
-            url: '/rpc',
-            headers: {
-                'X-Rpc-WebClient': '1',
-                'X-Rpc-SessionId': session_id,
-                'X-Rpc-Cancelation': '1',
-            },
-            type: 'post',
-            contentType: 'application/json',
-            data: JSON.stringify(request)
-        })
-
-        return;
-    }
-
-    $.ajax({
-        url: '/rpc',
-        headers: {
-            'X-Rpc-WebClient': '1',
-            'X-Rpc-SessionId': session_id
-        },
-        type: 'post',
-        contentType: 'application/json',
-        data: JSON.stringify(request),
-        xhr: function () {
-            var xhr = $.ajaxSettings.xhr()
-            xhr.onreadystatechange = function () {
-                if (xhr.readyState >= 3) {
-                    while (true) {
-                        var p = xhr.response.indexOf(boundary, start)
-                        if (p == -1)
-                            break
-
-                        var end = p + boundary.length
-
-                        var r = handle_chunk(xhr.response.substring(start, end))
-                        if (r)
-                            resobj = r
-
-                        start = end
-                    }
-                }
-                if (xhr.readyState == 4) {
-                    var r = handle_chunk(xhr.response.substring(start))
-                    if (r)
-                        resobj = r
-                }
-                if ((xhr.readyState == 4) && (callback != null))
-                    callback(resobj)
-                if (xhr.readyState == 4)
-                    rpc_continue()
-            }
-            return xhr
-        },
-        error: function (jqXHR, textStatus, errorThrown) {
-            if ((!jqXHR.responseJSON) && (jqXHR.status != 200)) {
-                if (!client_status['network_error']) {
-                    client_status['network_error'] = true
-
-                    obj = {}
-                    obj['message'] = 'Network error: try again later.'
-                    obj['trace'] = []
-                    show_error(obj)
-                }
-            }
+            obj = {}
+            obj['message'] = 'Network error: try again later.'
+            obj['trace'] = []
+            show_error(obj)
         }
-    })
-}
 
-function handle_chunk(response) {
-    var resobj = null
+        _ws = new WebSocket(uri)
+        _ws.onerror = ws_error
+        _ws.onclose = ws_error
+        _ws.onopen = function (e) {
+            for (var i = 0; i < _ws_init_queue.length; i++)
+                _ws.send(_ws_init_queue[i])
 
-    if (!response.startsWith('['))
-        response = '[' + response
+            _ws_init_queue = []
+        }
+        _ws.onmessage = function (e) {
+            debug_log("RECEIVE (callback queue " + _ws_callbacks.length + ")\r\n" + e.data)
 
-    if (response.endsWith(','))
-        response += 'null]'
-    else if (!response.endsWith(']'))
-        response += ']'
-
-    objs = JSON.parse(response)
-    for (var i = 0; i < objs.length; i++) {
-        obj = objs[i]
-        if (!obj)
-            continue
-        if ((typeof obj) != 'object')
-            continue
-
-        debug_log("<< " + JSON.stringify(obj))
-
-        if (obj['type'] == 'response')
-            resobj = obj
-        else
-            dispatch_chunk(obj)
+            var msg = JSON.parse(e.data)
+            if (msg["type"] == "response") {
+                var cb = _ws_callbacks.splice(0, 1)[0]
+                if (cb != null)
+                    cb(msg["value"])
+            }
+            else
+                dispatch_chunk(msg)
+        }
     }
 
-    return resobj
+    var jReq = JSON.stringify(request, null, 2)
+    debug_log("SEND (callback queue " + _ws_callbacks.length + ")\r\n" + jReq)
+
+    _ws_callbacks.push(callback)
+
+    if (_ws.readyState == 0)
+        _ws_init_queue.push(jReq)
+    else
+        _ws.send(jReq)
 }
 
 function dispatch_chunk(obj) {
@@ -167,7 +91,7 @@ function dispatch_chunk(obj) {
         if ((obj['code'] == 6) ||          // E_INVALID_SESSION
             (obj['code'] == 1) ||          // E_SYSTEM_IN_MAINTENANCE
             (obj['code'] == 5))            // E_SYSTEM_NOT_READY
-            client_status['network_error'] = true
+            _network_error = true
 
         show_error(obj)
         return
@@ -175,6 +99,7 @@ function dispatch_chunk(obj) {
 
     if (obj['type'] == 'send') {
         if (obj['action'] == 'closepage') {
+
             close_page(obj['pageid'])
             return
         }
@@ -228,6 +153,27 @@ function dispatch_chunk(obj) {
             ctl.trigger('focus')
             return
         }
+
+        if (obj['messageType'] == "ClientMessageAuthentication") {
+            handle_cookie(obj)
+            return
+        }
+
+    }
+}
+
+function handle_cookie(obj) {
+    if (obj["Clear"]) {
+        document.cookie = "X-Authorization=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;"
+
+    } else {
+        var expires = "";
+        if (obj["Expires"]) {
+            var dt = new Date(obj["Expires"])
+            expires = "; Expires=" + dt.toUTCString()
+        }
+        document.cookie = "X-Authorization=" + obj["Token"] + expires + "; path=/"
+
     }
 }
 
@@ -250,7 +196,7 @@ function send_selection(grid) {
             sel.push($(e).attr('data-index') * 1)
     })
 
-    rpc_enqueue({
+    rpc_post({
         'type': 'request',
         'objectid': grid.attr('page-id'),
         'method': 'SelectRows',
@@ -448,7 +394,7 @@ function handle_data_grid(data_grid, grid, obj) {
 
                         toggle_grid_select(grp, false)
 
-                        rpc_enqueue({
+                        rpc_post({
                             'type': 'request',
                             'objectid': grp.attr('page-id'),
                             'method': 'ControlInvoke',
@@ -549,7 +495,7 @@ function pop_page(pageid) {
 }
 
 function call_close_page(pageid) {
-    rpc_enqueue({
+    rpc_post({
         'type': 'request',
         'objectid': pageid,
         'method': 'QueryClose',
@@ -561,10 +507,13 @@ function call_close_page(pageid) {
 function close_page(pageid) {
     var p = $('#' + pageid)
     if (p.length > 0) {
-        if (p.prop('is-modal'))
+        if (p.prop('is-modal')) {
+            p.on('shown.bs.modal', function (e) {
+                p.modal('hide')
+            })
             p.modal('hide')
 
-        else if (p.prop('is-content')) {
+        } else if (p.prop('is-content')) {
             p.remove()
 
             // remove menu
@@ -1183,7 +1132,7 @@ function handle_notifications(obj) {
             msg.on('click', function (e) {
                 var ctl = recurse_parent($(e.target), 'ctl-id')
                 var msg = recurse_parent($(e.target), 'notificationID')
-                rpc_enqueue({
+                rpc_post({
                     'type': 'request',
                     'objectid': ctl.attr('page-id'),
                     'method': 'ControlInvoke',
@@ -1393,7 +1342,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
             al.prop('page-size', pageSize)
             al.prop('page-no', pages)
             al.on('click', function (e) {
-                rpc_enqueue({
+                rpc_post({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': 'GetData',
@@ -1425,7 +1374,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
             sl.attr('page-id', ctl.attr('page-id'))
             sl.prop('page-size', pageSize)
             sl.on('change', function (e) {
-                rpc_enqueue({
+                rpc_post({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': 'GetData',
@@ -1451,7 +1400,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
             af.attr('page-id', ctl.attr('page-id'))
             af.prop('page-size', pageSize)
             af.on('click', function (e) {
-                rpc_enqueue({
+                rpc_post({
                     'type': 'request',
                     'objectid': $(e.target).attr('page-id'),
                     'method': 'GetData',
@@ -1525,7 +1474,7 @@ function render_grid_parent(ctl, parent, page) {
     btns.on('click', function (e) {
         var grp = recurse_parent($(e.target), 'page-id')
 
-        rpc_enqueue({
+        rpc_post({
             'type': 'request',
             'objectid': grp.attr('page-id'),
             'method': 'Search',
@@ -1589,7 +1538,7 @@ function render_grid_parent(ctl, parent, page) {
                     cn = th.prop('codeName')
                 }
 
-                rpc_enqueue({
+                rpc_post({
                     'type': 'request',
                     'objectid': grp.attr('page-id'),
                     'method': 'Sort',
@@ -1727,7 +1676,7 @@ function render_checkbox(ctl, parent, page, schema) {
         if ($(e.target).prop('x-value') === $(e.target).prop('checked'))
             return
 
-        rpc_enqueue({
+        rpc_post({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
@@ -1781,7 +1730,7 @@ function render_select(ctl, parent, page, schema) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
-        rpc_enqueue({
+        rpc_post({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
@@ -1846,7 +1795,7 @@ function render_input(ctl, parent, page, schema) {
         if ($(e.target).prop('x-value') === $(e.target).val())
             return
 
-        rpc_enqueue({
+        rpc_post({
             'type': 'request',
             'objectid': $(e.target).attr('page-id'),
             'method': 'ControlInvoke',
@@ -1996,10 +1945,15 @@ function render_button_parent(ctl, parent, page) {
 
     parent.append(bnt)
 
-    bnt.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
-        action_trigger(a)
-    })
+    if (ctl['isCancelation'])
+        bnt.on('click', function (e) {
+            rpc_cancel()
+        })
+    else
+        bnt.on('click', function (e) {
+            var a = recurse_parent($(e.target), 'ctl-id')
+            action_trigger(a)
+        })
 
     for (var c in ctl['controls']) {
         var ctl2 = ctl['controls'][c]
@@ -2323,7 +2277,7 @@ function set_title(title) {
 }
 
 function action_trigger(obj) {
-    var payload = {
+    rpc_post({
         'type': 'request',
         'objectid': obj.attr('page-id'),
         'method': 'ControlInvoke',
@@ -2331,17 +2285,7 @@ function action_trigger(obj) {
             'controlid': obj.attr('ctl-id'),
             'method': 'Trigger'
         }
-    }
-
-    if (client_status['modals'].length > 0) {
-        var mod = client_status['modals'][client_status['modals'].length - 1]
-        if ((mod.prop('unitType') == "Brayns.Shaper.Systems.Progress") && (mod.prop('id') == obj.attr('page-id'))) {
-            rpc_post(payload, null, true)
-            return
-        }
-    }
-
-    rpc_enqueue(payload)
+    })
 }
 
 function handle_download(obj) {
@@ -2421,7 +2365,7 @@ function show_error(obj) {
     div.find('#stack').html(trace)
 
     div.on('hidden.bs.modal', function (e) {
-        if (client_status['network_error'])
+        if (_network_error)
             location.reload()
 
         modal_closing(e)
@@ -2442,25 +2386,13 @@ function core_initialize() {
 
     var psrc = new URLSearchParams(window.location.search)
 
-    rpc_enqueue({
+    rpc_post({
         'type': 'request',
         'classname': 'Brayns.Shaper.Systems.ClientManagement',
         'method': 'Start',
         'arguments': {
             'page': psrc.has('page') ? psrc.get('page') : ''
         }
-    }, function (e) {
-        if (e)
-            session_id = e['value']
-    })
-
-    $(window).on("unload", function () {
-        rpc_post({
-            'type': 'request',
-            'classname': 'Brayns.Shaper.Systems.ClientManagement',
-            'method': 'Destroy',
-            'arguments': {}
-        }, null, true)
     })
 
     $(document).on('keydown', handle_shortcut)
@@ -2469,7 +2401,7 @@ function core_initialize() {
 }
 
 function poll() {
-    rpc_enqueue({
+    rpc_post({
         'type': 'request',
         'classname': 'Brayns.Shaper.Systems.ClientManagement',
         'method': 'Poll',
