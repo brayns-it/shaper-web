@@ -1,3 +1,14 @@
+.selectize-input {
+    padding-top: 4px;
+    padding-bottom: 4px;
+    font-size: .875rem;
+    min-height: 0px;
+}
+
+.selectize-input.focus {
+    box-shadow: none;
+}
+
 .table-row-selector {
     width: 20px;
 }

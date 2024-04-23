@@ -3,7 +3,7 @@
  *
  */
 
-var client_status = {
+let client_status = {
     'application_name': '',
     'pages': [],
     'modals': [],
@@ -19,10 +19,11 @@ function uuidv4() {
         })
 }
 
-var _ws = null
-var _ws_init_queue = []
-var _ws_callbacks = []
-var _network_error = false
+let _ws = null
+let _ws_init_queue = []
+let _ws_callbacks = {}
+let _network_error = false
+let _req_id = 1
 
 /*
  *  >>> NETWORK
@@ -30,7 +31,7 @@ var _network_error = false
  */
 
 function rpc_cancel() {
-    var jReq = JSON.stringify({
+    let jReq = JSON.stringify({
         'type': 'cancel'
     }, null, 2)
 
@@ -40,45 +41,54 @@ function rpc_cancel() {
 
 function rpc_post(request, callback) {
     if (_ws == null) {
-        var uri = (window.location.protocol.toLowerCase().indexOf("https") > -1) ? "wss://" : "ws://"
+        let uri = (window.location.protocol.toLowerCase().indexOf("https") > -1) ? "wss://" : "ws://"
         uri += window.location.host + "/rpc"
 
-        var ws_error = function (e) {
-            _network_error = true;
+        let ws_error = function (e) {
+            if (!_network_error) {
+                _network_error = true;
 
-            obj = {}
-            obj['message'] = 'Network error: try again later.'
-            obj['trace'] = []
-            show_error(obj)
+                obj = {}
+                obj['message'] = 'Network error: try again later.'
+                obj['trace'] = []
+                show_error(obj)
+            }
         }
 
         _ws = new WebSocket(uri)
         _ws.onerror = ws_error
         _ws.onclose = ws_error
         _ws.onopen = function (e) {
-            for (var i = 0; i < _ws_init_queue.length; i++)
+            for (let i = 0; i < _ws_init_queue.length; i++)
                 _ws.send(_ws_init_queue[i])
 
             _ws_init_queue = []
         }
         _ws.onmessage = function (e) {
-            debug_log("RECEIVE (callback queue " + _ws_callbacks.length + ")\r\n" + e.data)
+            debug_log("RECEIVE\r\n" + e.data)
 
-            var msg = JSON.parse(e.data)
-            if (msg["type"] == "response") {
-                var cb = _ws_callbacks.splice(0, 1)[0]
-                if (cb != null)
+            let msg = JSON.parse(e.data)
+
+            if (msg["requestid"]) {
+                let cb = _ws_callbacks[msg["requestid"]]
+                if (cb) {
+                    delete _ws_callbacks[msg["requestid"]]
                     cb(msg["value"])
+                }
             }
-            else
-                dispatch_chunk(msg)
+
+            dispatch_chunk(msg)
         }
     }
 
-    var jReq = JSON.stringify(request, null, 2)
-    debug_log("SEND (callback queue " + _ws_callbacks.length + ")\r\n" + jReq)
+    _req_id++
+    request["requestid"] = _req_id
 
-    _ws_callbacks.push(callback)
+    let jReq = JSON.stringify(request, null, 2)
+    debug_log("SEND\r\n" + jReq)
+
+    if (callback)
+        _ws_callbacks[_req_id] = callback
 
     if (_ws.readyState == 0)
         _ws_init_queue.push(jReq)
@@ -149,7 +159,7 @@ function dispatch_chunk(obj) {
         }
 
         if (obj['action'] == 'focusControl') {
-            var ctl = $('[ctl-id="' + obj['controlId'] + '"]').first()
+            let ctl = $('[ctl-id="' + obj['controlId'] + '"]').first()
             ctl.trigger('focus')
             return
         }
@@ -167,9 +177,9 @@ function handle_cookie(obj) {
         document.cookie = "X-Authorization=; Path=/; Expires=Thu, 01 Jan 1970 00:00:01 GMT;"
 
     } else {
-        var expires = "";
+        let expires = "";
         if (obj["Expires"]) {
-            var dt = new Date(obj["Expires"])
+            let dt = new Date(obj["Expires"])
             expires = "; Expires=" + dt.toUTCString()
         }
         document.cookie = "X-Authorization=" + obj["Token"] + expires + "; path=/"
@@ -190,7 +200,7 @@ function handle_page_properties(obj) {
 }
 
 function send_selection(grid) {
-    var sel = []
+    let sel = []
     grid.find('.table-row-selector').find('input').each(function (i, e) {
         if ($(e).prop('checked') && $(e).attr('data-index'))
             sel.push($(e).attr('data-index') * 1)
@@ -219,9 +229,9 @@ function toggle_grid_select(grid, selected) {
 }
 
 function toggle_row_select(row, selected) {
-    var grp = recurse_parent(row, 'page-id')
+    let grp = recurse_parent(row, 'page-id')
 
-    var inp = row.find('.table-row-selector').find('input')
+    let inp = row.find('.table-row-selector').find('input')
     inp.prop('checked', selected)
 
     if (selected) {
@@ -230,7 +240,7 @@ function toggle_row_select(row, selected) {
         $('#control-sidebar').ControlSidebar('show')
 
     } else {
-        var hasOne = false
+        let hasOne = false
         grp.find('.table-row-selector').find('input').each(function (i, e) {
             if ($(e).prop('checked'))
                 hasOne = true
@@ -249,37 +259,48 @@ function toggle_row_select(row, selected) {
  */
 
 function get_schema_field(page, codename) {
-    for (var n in page['schema'])
+    for (let n in page['schema'])
         if (page['schema'][n]['codename'] == codename)
             return page['schema'][n];
     return null;
 }
 
 function handle_data(obj) {
-    var page = get_pagebyid(obj['pageid'])
+    let page = get_pagebyid(obj['pageid'])
     if (!page)
         return
 
-    var dom = $('#' + obj['pageid'])
-    var data_grid = []
+    let dom = $('#' + obj['pageid'])
+    let data_grid = []
 
-    for (var j = 0; j < obj["data"].length; j++) {
-        var row_grid = {}
+    for (let j = 0; j < obj["data"].length; j++) {
+        let row_grid = {}
 
-        for (var i = 0; i < page['schema'].length; i++) {
-            var codename = page['schema'][i]['codename']
-            var fieldType = page['schema'][i]['fieldType']
-            var hasFormat = page['schema'][i]['hasFormat']
-            var value = obj["data"][j][i]
-            var fValue = obj["fdata"][j][i]
+        for (let i = 0; i < page['schema'].length; i++) {
+            let codename = page['schema'][i]['codename']
+            let fieldType = page['schema'][i]['fieldType']
+            let hasFormat = page['schema'][i]['hasFormat']
+            let value = obj["data"][j][i]
+            let fValue = obj["fdata"][j][i]
             if (!hasFormat) fValue = value
 
             if (j == 0) {
-                var ctl = dom.find('[bind-codename="' + codename + '"]')
+                let ctl = dom.find('[bind-codename="' + codename + '"]')
                 if (ctl.length > 0) {
-                    var tag = ctl.prop("tagName").toUpperCase()
+                    let tag = ctl.prop("tagName").toUpperCase()
 
-                    if ((tag == 'INPUT') && (fieldType == 'BOOLEAN')) {
+                    if (ctl.prop("is-select-ext")) {
+                        ctl.prop('x-value', value)
+                        if (ctl[0].selectize.getValue() != value) {
+                            ctl[0].selectize.clearOptions(true)
+                            ctl[0].selectize.addOption({ value: value, caption: fValue })
+                            ctl[0].selectize.setValue(value, true)
+                            ctl.prop('_opened', false)
+                        }
+                        if (value == '')
+                            ctl.prop('_opened', false)
+
+                    } else if ((tag == 'INPUT') && (fieldType == 'BOOLEAN')) {
                         ctl.prop('checked', value)
                         ctl.prop('x-value', value)
 
@@ -308,14 +329,14 @@ function handle_data(obj) {
     }
 
     dom.find('[is-grid="1"]').each(function (i, e) {
-        var grid = $(e)
+        let grid = $(e)
         if (grid.attr('page-id') == obj['pageid'])
             handle_data_grid(data_grid, grid, obj)
     })
 }
 
 function handle_data_grid(data_grid, grid, obj) {
-    var cols = []
+    let cols = []
     grid.find('thead').find('tr').find('th').each(function (i, e) {
         if ($(e).prop('codeName'))
             cols.push({
@@ -327,14 +348,14 @@ function handle_data_grid(data_grid, grid, obj) {
             })
     })
 
-    var tbody = grid.find("tbody")
+    let tbody = grid.find("tbody")
 
     if (obj['selectedrow'] > -1) {
-        var row = tbody.find('[data-index="' + (obj['selectedrow'] * 1) + '"]')
+        let row = tbody.find('[data-index="' + (obj['selectedrow'] * 1) + '"]')
 
-        for (var j = 0; j < cols.length; j++) {
-            var td = row.find('td').eq(cols[j].index)
-            var content = data_grid[0][cols[j].codeName]['fValue']
+        for (let j = 0; j < cols.length; j++) {
+            let td = row.find('td').eq(cols[j].index)
+            let content = data_grid[0][cols[j].codeName]['fValue']
 
             if (cols[j].isLink)
                 td.find('a').html(content)
@@ -350,47 +371,47 @@ function handle_data_grid(data_grid, grid, obj) {
         tbody.empty()
 
         if (data_grid.length == 0) {
-            var nodata_row = $(`<tr><td></td></tr>`)
-            var nodata = nodata_row.find('td')
+            let nodata_row = $(`<tr><td></td></tr>`)
+            let nodata = nodata_row.find('td')
             nodata.attr("colspan", cols.length)
             nodata.html(grid.prop('labelNodata'))
             nodata_row.appendTo(tbody)
         }
 
-        for (var i = 0; i < data_grid.length; i++) {
-            var row = $(`<tr>`)
+        for (let i = 0; i < data_grid.length; i++) {
+            let row = $(`<tr>`)
             row.attr('data-index', i)
 
-            var selTh = $(`<td class="table-row-selector"><input type="checkbox"></th>`)
+            let selTh = $(`<td class="table-row-selector"><input type="checkbox"></th>`)
             selTh.hide()
             selTh.css('padding-top', '6px')
             selTh.css('padding-bottom', '6px')
             row.append(selTh)
 
-            var selInp = selTh.find('input')
+            let selInp = selTh.find('input')
             selInp.attr('data-index', i)
             selInp.on('change', function (e) {
-                var grp = recurse_parent($(e.target), 'page-id')
-                var row = recurse_parent($(e.target), 'data-index')
+                let grp = recurse_parent($(e.target), 'page-id')
+                let row = recurse_parent($(e.target), 'data-index')
                 toggle_row_select(row, $(e).prop('checked'))
                 send_selection(grp)
             })
 
-            for (var j = 0; j < cols.length; j++) {
-                var col = $(`<td>`)
+            for (let j = 0; j < cols.length; j++) {
+                let col = $(`<td>`)
 
-                var content = data_grid[i][cols[j].codeName]['fValue']
+                let content = data_grid[i][cols[j].codeName]['fValue']
 
                 if (cols[j].isLink) {
-                    var a = $(`<a>`)
+                    let a = $(`<a>`)
                     a.attr('href', '#')
                     a.prop('fieldId', cols[j].fieldId)
                     a.html(content)
                     col.append(a)
 
                     a.on('click', function (e) {
-                        var grp = recurse_parent($(e.target), 'page-id')
-                        var row = recurse_parent($(e.target), 'data-index')
+                        let grp = recurse_parent($(e.target), 'page-id')
+                        let row = recurse_parent($(e.target), 'data-index')
 
                         toggle_grid_select(grp, false)
 
@@ -450,13 +471,13 @@ function handle_shortcut(evt) {
     }
 
     if (is_shortcut(evt)) {
-        var k = ""
+        let k = ""
         if (evt.ctrlKey) k += "Ctrl+"
         if (evt.altKey) k += "Alt+"
         if (evt.shiftKey) k += "Shift+"
         k += evt.key
 
-        var c = $('[ctl-shortcut="' + k + '"]').first()
+        let c = $('[ctl-shortcut="' + k + '"]').first()
         if (c.length > 0) {
             if (client_status['last_focus'])
                 client_status['last_focus'].trigger('blur')
@@ -468,7 +489,7 @@ function handle_shortcut(evt) {
 }
 
 function get_pageindexbyid(pageid) {
-    for (var k = 0; k < client_status['pages'].length; k++) {
+    for (let k = 0; k < client_status['pages'].length; k++) {
         if (client_status['pages'][k]['id'] == pageid)
             return k
     }
@@ -476,7 +497,7 @@ function get_pageindexbyid(pageid) {
 }
 
 function get_pagebyid(pageid) {
-    for (var k = 0; k < client_status['pages'].length; k++) {
+    for (let k = 0; k < client_status['pages'].length; k++) {
         if (client_status['pages'][k]['id'] == pageid)
             return client_status['pages'][k]
     }
@@ -484,10 +505,10 @@ function get_pagebyid(pageid) {
 }
 
 function pop_page(pageid) {
-    var i = get_pageindexbyid(pageid)
+    let i = get_pageindexbyid(pageid)
     if (i > -1) {
         client_status['pages'].splice(i, 1)
-        var n = ''
+        let n = ''
         if (client_status['pages'].length > 0)
             n = client_status['pages'][client_status['pages'].length - 1]['caption']
         set_title(n)
@@ -505,7 +526,7 @@ function call_close_page(pageid) {
 }
 
 function close_page(pageid) {
-    var p = $('#' + pageid)
+    let p = $('#' + pageid)
     if (p.length > 0) {
         if (p.prop('is-modal')) {
             p.on('shown.bs.modal', function (e) {
@@ -517,23 +538,23 @@ function close_page(pageid) {
             p.remove()
 
             // remove menu
-            var mnu = $("#menu-left")
+            let mnu = $("#menu-left")
             mnu.children().each(function (i, e) {
                 if ($(e).attr('page-id') == pageid)
                     $(e).remove()
             })
 
             // restore title
-            var head = $('.content-wrapper').find('.content-header')
+            let head = $('.content-wrapper').find('.content-header')
             head.find('.container-fluid').show()
 
-            var title = head.find('#title')
+            let title = head.find('#title')
             title.children().each(function (i, e) {
                 if ($(e).attr('page-id') == pageid) {
                     if ($(e).prev().prop('is-separator'))
                         $(e).prev().remove()
                     if ($(e).prev().prop('is-link')) {
-                        var st = $(`<span>`)
+                        let st = $(`<span>`)
                         st.html($(e).prev().html())
                         st.attr('page-id', $(e).prev().attr('page-id'))
                         st.attr('title-id', $(e).prev().prop('title-id'))
@@ -541,7 +562,7 @@ function close_page(pageid) {
                         $(e).before(st)
                     }
                     if ($(e).prev().attr('page-id')) {
-                        var ppid = $(e).prev().attr('page-id')
+                        let ppid = $(e).prev().attr('page-id')
                         $('#' + ppid).show()
                         mnu.children().each(function (i, e) {
                             if ($(e).attr('page-id') == ppid)
@@ -551,7 +572,7 @@ function close_page(pageid) {
                     $(e).remove()
                 }
                 if ($(e).prop('page-ids')) {
-                    var i = $(e).prop('page-ids').indexOf(pageid)
+                    let i = $(e).prop('page-ids').indexOf(pageid)
                     if (i > -1)
                         $(e).prop('page-ids').splice(i, 1)
                 }
@@ -570,14 +591,14 @@ function close_page(pageid) {
 }
 
 function redraw_control(obj) {
-    var ctl = $('[ctl-id="' + obj['id'] + '"]').first()
+    let ctl = $('[ctl-id="' + obj['id'] + '"]').first()
     ctl.remove()
 
-    var args = ctl.prop('render-args')
-    var arg0 = (args.length > 0) ? args[0] : null
-    var arg1 = (args.length > 1) ? args[1] : null
-    var arg2 = (args.length > 2) ? args[2] : null
-    var arg3 = (args.length > 3) ? args[3] : null
+    let args = ctl.prop('render-args')
+    let arg0 = (args.length > 0) ? args[0] : null
+    let arg1 = (args.length > 1) ? args[1] : null
+    let arg2 = (args.length > 2) ? args[2] : null
+    let arg3 = (args.length > 3) ? args[3] : null
 
     window[ctl.prop('render-function')](obj, arg0, arg1, arg2, arg3)
 }
@@ -616,10 +637,10 @@ function run_page(obj) {
 
     }
 
-    var pageRow = $('#' + obj['id'])
+    let pageRow = $('#' + obj['id'])
     pageRow.find('input').first().trigger('focus')
 
-    var head = $('.content-wrapper').find('.content-header').find('.container-fluid')
+    let head = $('.content-wrapper').find('.content-header').find('.container-fluid')
     if (obj['showHeader'])
         head.show()
     else
@@ -630,7 +651,7 @@ function run_page(obj) {
 }
 
 function render_controls_modal(page) {
-    var div = $(`
+    let div = $(`
     <div class="modal fade" data-backdrop="static">
         <div class="modal-dialog">
             <div class="modal-content">
@@ -658,8 +679,8 @@ function render_controls_modal(page) {
     div.find('#title').html(page['caption'])
     div.appendTo('body')
 
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'ActionArea')
             render_actionarea_modal(ctl, div, page)
@@ -667,10 +688,10 @@ function render_controls_modal(page) {
             render_contentarea_modal(ctl, div, page)
     }
 
-    var close = div.find('#close')
+    let close = div.find('#close')
     close.attr('page-id', page['id'])
     close.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'page-id')
+        let a = recurse_parent($(e.target), 'page-id')
         call_close_page(a.attr('page-id'))
     })
 
@@ -684,33 +705,33 @@ function render_controls_modal(page) {
 
 function render_controls_content(page) {
     // hide menu
-    var mnu = $("#menu-left")
+    let mnu = $("#menu-left")
     mnu.children().each(function (i, e) {
         if ($(e).attr('page-id'))
             $(e).hide()
     })
 
     // hide content
-    var wrap = $('.content-wrapper')
-    var title = wrap.find('.content-header').find('#title')
+    let wrap = $('.content-wrapper')
+    let title = wrap.find('.content-header').find('#title')
 
     if (title.children().length > 0) {
-        var st = title.children(':last-child')
+        let st = title.children(':last-child')
 
-        var a = $(`<a href="javascript:;"></a>`)
+        let a = $(`<a href="javascript:;"></a>`)
         a.html(st.html())
         a.prop('is-link', true)
         a.prop('page-ids', [])
         a.attr('page-id', st.attr('page-id'))
         a.attr('title-id', st.prop('title-id'))
         a.on('click', function (e) {
-            var pids = $(e.target).prop('page-ids')
-            for (var i = 0; i < pids.length; i++)
+            let pids = $(e.target).prop('page-ids')
+            for (let i = 0; i < pids.length; i++)
                 call_close_page(pids[i])
         })
         a.appendTo(title)
 
-        var span = $(`<span> &gt; </span>`)
+        let span = $(`<span> &gt; </span>`)
         span.prop('is-separator', true)
         span.appendTo(title)
 
@@ -722,21 +743,21 @@ function render_controls_content(page) {
         })
     }
 
-    var th = $(`<span></span>`)
+    let th = $(`<span></span>`)
     th.html(page['caption'])
     th.attr('page-id', page['id'])
     th.attr('title-id', page['id'])
     th.appendTo(title)
 
-    var fluid = wrap.find('#container')
+    let fluid = wrap.find('#container')
 
     fluid.children().each(function (i, e) {
         $(e).hide()
     })
 
     // recurse controls
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'AppCenter')
             render_appcenter(ctl, page)
@@ -761,7 +782,7 @@ function render_controls_content(page) {
  */
 
 function render_detailarea_content(ctl, page) {
-    var li = $(`
+    let li = $(`
         <li class="nav-item" id="control-sidebar-li">
             <a class="nav-link" data-widget="control-sidebar" id="control-sidebar" data-controlsidebar-slide="true" href="javascript:;" role="button">
                 <i class="fas fa-th-large"></i>
@@ -770,11 +791,11 @@ function render_detailarea_content(ctl, page) {
     `)
     $('#menu-right').append(li)
 
-    var parent = $('#detail-area')
+    let parent = $('#detail-area')
     parent.empty()
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Subpage')
             render_subpage_parent(ctl2, parent, page)
@@ -782,13 +803,13 @@ function render_detailarea_content(ctl, page) {
 }
 
 function render_controls_detail_subpage(page) {
-    var parent = $('[ctl-id="' + page['parentId'] + '"]').first()
+    let parent = $('[ctl-id="' + page['parentId'] + '"]').first()
     parent.attr('id', page['id'])
 
     // search content area
-    var cArea = null
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    let cArea = null
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'ContentArea') {
             cArea = ctl
@@ -799,8 +820,8 @@ function render_controls_detail_subpage(page) {
         return
 
     // supported controls
-    for (var c in cArea['controls']) {
-        var ctl = cArea['controls'][c]
+    for (let c in cArea['controls']) {
+        let ctl = cArea['controls'][c]
 
         if (ctl['controlType'] == 'Grid')
             render_grid_detail(ctl, parent, page)
@@ -809,18 +830,18 @@ function render_controls_detail_subpage(page) {
     }
 
     // actions after controls
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'ActionArea') {
-            var head = parent.find('.card-header')
+            let head = parent.find('.card-header')
             render_actionarea_card(ctl, head, page)
         }
     }
 }
 
 function render_grid_detail(ctl, parent, page) {
-    var grp = $(`
+    let grp = $(`
         <div class="card card-light">
             <div class="card-header">
                 <h3 class="card-title"></h3>
@@ -848,13 +869,13 @@ function render_grid_detail(ctl, parent, page) {
     grp.prop('labelNodata', ctl['labelNodata'])
     grp.appendTo(parent)
 
-    var head = grp.find("thead").find("tr")
+    let head = grp.find("thead").find("tr")
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Field') {
-            var th = $(`<th>`)
+            let th = $(`<th>`)
 
             if ((ctl2['fieldType'] == 'DECIMAL') || (ctl2['fieldType'] == 'INTEGER'))
                 th.css('text-align', 'right')
@@ -874,21 +895,21 @@ function render_grid_detail(ctl, parent, page) {
 }
 
 function render_field_detail(ctl, parent, page, ctlParent) {
-    var schema = get_schema_field(page, ctl['codename'])
+    let schema = get_schema_field(page, ctl['codename'])
 
-    var row = $(`<div>`)
+    let row = $(`<div>`)
     row.addClass("row")
     row.appendTo(parent)
 
 
-    var label = $(`<div class="col-form-label font-weight-normal" style="padding-top: 0px" />`)
+    let label = $(`<div class="col-form-label font-weight-normal" style="padding-top: 0px" />`)
     label.addClass('col-sm')
     label.html(ctl['caption'] + ':')
     label.appendTo(row)
 
     ctl['readOnly'] = true;
 
-    var field = $(`<div />`)
+    let field = $(`<div />`)
     field.addClass('col-sm')
     render_input_html(ctl, field, page, schema)
     field.appendTo(row)
@@ -900,23 +921,23 @@ function render_field_detail(ctl, parent, page, ctlParent) {
  */
 
 function render_controls_content_subpage(page) {
-    var parent = $('[ctl-id="' + page['parentId'] + '"]').first()
+    let parent = $('[ctl-id="' + page['parentId'] + '"]').first()
     parent.attr('id', page['id'])
 
     // recurse controls
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'ContentArea')
             render_contentarea_controls(ctl, parent, page)
     }
 
     // actions after controls
-    for (var c in page['controls']) {
-        var ctl = page['controls'][c]
+    for (let c in page['controls']) {
+        let ctl = page['controls'][c]
 
         if (ctl['controlType'] == 'ActionArea') {
-            var head = parent.find('.card-header')
+            let head = parent.find('.card-header')
             render_actionarea_card(ctl, head, page)
         }
     }
@@ -928,9 +949,9 @@ function render_controls_content_subpage(page) {
  */
 
 function render_contentarea_content(ctl, page) {
-    var container = $('#container')
+    let container = $('#container')
 
-    var carea = $(`
+    let carea = $(`
         <div class="row">
             <div id="row-content">
             </div>
@@ -944,7 +965,7 @@ function render_contentarea_content(ctl, page) {
     carea.prop('render-args', [page])
     container.append(carea)
 
-    var cnt = carea.find('#row-content')
+    let cnt = carea.find('#row-content')
     carea.find('#row-content').addClass('col-12')
 
     render_contentarea_controls(ctl, cnt, page)
@@ -952,8 +973,8 @@ function render_contentarea_content(ctl, page) {
 
 function render_contentarea_controls(ctl, parent, page) {
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Group')
             render_group_parent(ctl2, parent, page)
@@ -977,8 +998,8 @@ function render_appcenter(ctl, page) {
     $('body').addClass('sidebar-collapse')
     $('#menu-left').empty()
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Indicator')
             render_indicator(ctl2)
@@ -1001,17 +1022,17 @@ function render_appcenter(ctl, page) {
 }
 
 function render_footer(ctl) {
-    var foot = $(`.main-footer`)
+    let foot = $(`.main-footer`)
     foot.html(ctl['caption'])
     foot.show()
 }
 
 function render_indicator(ctl) {
-    var capt = ctl['caption']
+    let capt = ctl['caption']
     if (capt == '')
         return
 
-    var li = $(`
+    let li = $(`
         <li class="nav-item" id="indicator">
             <span class="badge badge-info"></span>
         </li>
@@ -1028,7 +1049,7 @@ function render_indicator(ctl) {
 }
 
 function render_search(ctl, page) {
-    var li = $(`
+    let li = $(`
     <li class="nav-item">
         <a class="nav-link" data-widget="navbar-search" href="javascript:;" role="button">
             <i class="fas fa-search"></i>
@@ -1057,7 +1078,7 @@ function render_search(ctl, page) {
 }
 
 function render_notifications(ctl, page) {
-    var li = $(`
+    let li = $(`
         <li class="nav-item dropdown" id="ctlNotification">
             <a class="nav-link" data-toggle="dropdown" href="javascript:;">
                 <i class="fas fa-bell"></i>
@@ -1072,8 +1093,8 @@ function render_notifications(ctl, page) {
     li.attr('page-id', page['id'])
     $('#menu-right').append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_notification(ctl2, ctl, page)
@@ -1081,22 +1102,22 @@ function render_notifications(ctl, page) {
 }
 
 function handle_notifications(obj) {
-    var li = $('#ctlNotification')
+    let li = $('#ctlNotification')
     li.find('#badge').html('')
 
-    var todel = []
-    var div = li.find('.dropdown-menu')
+    let todel = []
+    let div = li.find('.dropdown-menu')
     div.children().each(function (i, e) {
         if ($(e).prop('is-notification'))
             todel.push($(e))
     })
-    for (var i = 0; i < todel.length; i++)
+    for (let i = 0; i < todel.length; i++)
         todel[i].remove()
 
-    var count = 0;
+    let count = 0;
 
-    for (var i = 0; i < obj['items'].length; i++) {
-        var msg = $(`
+    for (let i = 0; i < obj['items'].length; i++) {
+        let msg = $(`
                     <a href="javascript:;" class="dropdown-item">
                         <div class="media">
                             <div class="media-body">
@@ -1130,8 +1151,8 @@ function handle_notifications(obj) {
             count++;
 
             msg.on('click', function (e) {
-                var ctl = recurse_parent($(e.target), 'ctl-id')
-                var msg = recurse_parent($(e.target), 'notificationID')
+                let ctl = recurse_parent($(e.target), 'ctl-id')
+                let msg = recurse_parent($(e.target), 'notificationID')
                 rpc_post({
                     'type': 'request',
                     'objectid': ctl.attr('page-id'),
@@ -1149,7 +1170,7 @@ function handle_notifications(obj) {
 
         div.prepend(msg)
 
-        var dro = $(`<div class="dropdown-divider"></div>`)
+        let dro = $(`<div class="dropdown-divider"></div>`)
         dro.prop('is-notification', true)
         div.prepend(dro)
 
@@ -1159,7 +1180,7 @@ function handle_notifications(obj) {
 }
 
 function render_usercenter(ctl, page) {
-    var li = $(`
+    let li = $(`
         <li class="nav-item dropdown">
             <a class="nav-link" data-toggle="dropdown" href="javascript:;">
                 <i class="fas fa-cog"></i>
@@ -1173,8 +1194,8 @@ function render_usercenter(ctl, page) {
     li.prop('id', ctl['id'])
     $('#menu-right').append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_usercenter(ctl2, ctl, page)
@@ -1191,15 +1212,15 @@ function render_navigationpane(ctl, page) {
         $('#userPanel').hide()
     }
 
-    var li = $(`
+    let li = $(`
         <li class="nav-item" id="pushmenu">
             <a class="nav-link" data-widget="pushmenu" href="javascript:;" role="button"><i class="fas fa-bars"></i></a>
         </li>
     `)
     $('#menu-left').append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_navigationpane(ctl2, page)
@@ -1214,12 +1235,12 @@ function render_navigationpane(ctl, page) {
  */
 
 function render_action_usercenter(ctl, parent, page) {
-    var menu = $('#' + parent['id']).find('.dropdown-menu')
+    let menu = $('#' + parent['id']).find('.dropdown-menu')
     menu.append(`
         <div class="dropdown-divider"></div>
     `)
 
-    var act = $(`
+    let act = $(`
         <a href="javascript:;" class="dropdown-item">
             <i id="icon"></i><span id="title"></span>
         </a>
@@ -1233,7 +1254,7 @@ function render_action_usercenter(ctl, parent, page) {
     act.attr('ctl-id', ctl['id'])
     act.attr('page-id', page['id'])
     act.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     menu.append(act)
@@ -1245,10 +1266,10 @@ function render_action_usercenter(ctl, parent, page) {
  */
 
 function render_action_notification(ctl, parent, page) {
-    var li = $('#ctlNotification')
-    var div = li.find('.dropdown-menu')
+    let li = $('#ctlNotification')
+    let div = li.find('.dropdown-menu')
 
-    var act = $(`
+    let act = $(`
         <div class="dropdown-divider"></div>
         <a href="javascript:;" class="dropdown-item">
             <i id="icon"></i><span id="title"></span>
@@ -1263,7 +1284,7 @@ function render_action_notification(ctl, parent, page) {
     act.attr('ctl-id', ctl['id'])
     act.attr('page-id', page['id'])
     act.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     div.append(act)
@@ -1275,10 +1296,10 @@ function render_action_notification(ctl, parent, page) {
  */
 
 function modal_closing(e) {
-    var ediv = $(e.target)
+    let ediv = $(e.target)
     ediv.remove()
 
-    for (var i = 0; i < client_status['modals'].length; i++)
+    for (let i = 0; i < client_status['modals'].length; i++)
         if (client_status['modals'][i].prop('modal-id') == ediv.prop('modal-id')) {
             client_status['modals'].splice(i, 1)
             break;
@@ -1289,8 +1310,8 @@ function modal_closing(e) {
 }
 
 function render_contentarea_modal(ctl, parent, page) {
-    var hdr = parent.find('.modal-header')
-    var div = $(`<div class="modal-body"></div>`)
+    let hdr = parent.find('.modal-header')
+    let div = $(`<div class="modal-body"></div>`)
     div.attr('ctl-id', ctl['id'])
     div.prop('render-function', 'render_contentarea_modal')
     div.prop('render-args', [parent, page])
@@ -1300,12 +1321,12 @@ function render_contentarea_modal(ctl, parent, page) {
 }
 
 function render_actionarea_modal(ctl, parent, page) {
-    var cnt = parent.find('.modal-content')
-    var div = $(`<div class="modal-footer"></div>`)
+    let cnt = parent.find('.modal-content')
+    let div = $(`<div class="modal-footer"></div>`)
     cnt.append(div)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_button_parent(ctl2, div, page)
@@ -1318,7 +1339,7 @@ function render_actionarea_modal(ctl, parent, page) {
  */
 
 function toggle_grid_pagination(ctl, count, pageSize) {
-    var pages = Math.ceil(count / pageSize)
+    let pages = Math.ceil(count / pageSize)
 
     if (pages <= 1) {
         ctl.find('#page-f').remove()
@@ -1326,10 +1347,10 @@ function toggle_grid_pagination(ctl, count, pageSize) {
         ctl.find('#page-l').remove()
 
     } else {
-        var sg = ctl.find('#search-grp')
+        let sg = ctl.find('#search-grp')
 
         if (ctl.find('#page-l').length == 0) {
-            var pl = $(`
+            let pl = $(`
                 <div style="display: inline-block" id="page-l">
                     <ul class="pagination pagination-sm">
                         <li class="page-item"><a href="javascript:;" class="page-link" id="golast">»</a></li>
@@ -1337,7 +1358,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
                 </div>
             `)
 
-            var al = pl.find('#golast')
+            let al = pl.find('#golast')
             al.attr('page-id', ctl.attr('page-id'))
             al.prop('page-size', pageSize)
             al.prop('page-no', pages)
@@ -1350,8 +1371,8 @@ function toggle_grid_pagination(ctl, count, pageSize) {
                         'offset': ($(e.target).prop('page-no') - 1) * $(e.target).prop('page-size')
                     }
                 }, function () {
-                    var grid = recurse_parent($(e.target), 'ctl-id')
-                    var sl = grid.find('#page-p').find('select')
+                    let grid = recurse_parent($(e.target), 'ctl-id')
+                    let sl = grid.find('#page-p').find('select')
                     sl.val($(e.target).prop('page-no'))
                 })
             })
@@ -1359,16 +1380,16 @@ function toggle_grid_pagination(ctl, count, pageSize) {
         }
 
         if (ctl.find('#page-p').length == 0) {
-            var pp = $(`
+            let pp = $(`
                 <div style="display: inline-block" id="page-p">
                     <select class="form-control form-control-sm" id="pagination">
                     </select>
                 </div>
             `)
 
-            var sl = pp.find('select')
-            for (var i = 1; i <= pages; i++) {
-                var opt = $('<option>' + i + '</option>')
+            let sl = pp.find('select')
+            for (let i = 1; i <= pages; i++) {
+                let opt = $('<option>' + i + '</option>')
                 sl.append(opt)
             }
             sl.attr('page-id', ctl.attr('page-id'))
@@ -1388,7 +1409,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
         }
 
         if (ctl.find('#page-f').length == 0) {
-            var pf = $(`
+            let pf = $(`
                 <div style="display: inline-block" id="page-f">
                     <ul class="pagination pagination-sm">
                         <li class="page-item"><a href="javascript:;" class="page-link" id="gofirst">«</a></li>
@@ -1396,7 +1417,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
                 </div>
             `)
 
-            var af = pf.find('#gofirst')
+            let af = pf.find('#gofirst')
             af.attr('page-id', ctl.attr('page-id'))
             af.prop('page-size', pageSize)
             af.on('click', function (e) {
@@ -1408,8 +1429,8 @@ function toggle_grid_pagination(ctl, count, pageSize) {
                         'offset': 0
                     }
                 }, function () {
-                    var grid = recurse_parent($(e.target), 'ctl-id')
-                    var sl = grid.find('#page-p').find('select')
+                    let grid = recurse_parent($(e.target), 'ctl-id')
+                    let sl = grid.find('#page-p').find('select')
                     sl.val(1)
                 })
             })
@@ -1419,7 +1440,7 @@ function toggle_grid_pagination(ctl, count, pageSize) {
 }
 
 function render_grid_parent(ctl, parent, page) {
-    var grp = $(`
+    let grp = $(`
         <div class="card card-light">
             <div class="card-header">
                 <h3 class="card-title"></h3>
@@ -1457,14 +1478,14 @@ function render_grid_parent(ctl, parent, page) {
     grp.prop('labelNodata', ctl['labelNodata'])
     grp.appendTo(parent)
 
-    var searchBox = grp.find('#search')
-    var btns = grp.find('#searchButton')
+    let searchBox = grp.find('#search')
+    let btns = grp.find('#searchButton')
 
     searchBox.attr('placeholder', ctl['label_search'])
     searchBox.on('keydown', function (evt) {
         if ((evt.key == 'Enter') || (evt.key == 'NumpadEnter')) {
-            var grp = recurse_parent($(evt.target), 'page-id')
-            var btns = grp.find('#searchButton')
+            let grp = recurse_parent($(evt.target), 'page-id')
+            let btns = grp.find('#searchButton')
             btns.trigger('click')
             evt.preventDefault()
             return false
@@ -1472,7 +1493,7 @@ function render_grid_parent(ctl, parent, page) {
     })
 
     btns.on('click', function (e) {
-        var grp = recurse_parent($(e.target), 'page-id')
+        let grp = recurse_parent($(e.target), 'page-id')
 
         rpc_post({
             'type': 'request',
@@ -1484,38 +1505,38 @@ function render_grid_parent(ctl, parent, page) {
         })
     })
 
-    var head = grp.find("thead").find("tr")
+    let head = grp.find("thead").find("tr")
 
-    var selTh = $(`<th class="table-row-selector"><input type="checkbox"></th>`)
+    let selTh = $(`<th class="table-row-selector"><input type="checkbox"></th>`)
     selTh.css('padding-top', '6px')
     selTh.css('padding-bottom', '6px')
     selTh.hide()
     head.append(selTh)
     selTh.find('input').on('change', function (e) {
-        var grp = recurse_parent($(e.target), 'page-id')
+        let grp = recurse_parent($(e.target), 'page-id')
         toggle_grid_select(grp, $(e.target).prop('checked'))
         send_selection(grp)
     })
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Field') {
-            var th = $(`<th>`)
+            let th = $(`<th>`)
 
             if ((ctl2['fieldType'] == 'DECIMAL') || (ctl2['fieldType'] == 'INTEGER'))
                 th.css('text-align', 'right')
 
-            var sort = $(`<a href='javascript:;'>`)
+            let sort = $(`<a href='javascript:;'>`)
             sort.html(ctl2['caption'])
             sort.appendTo(th)
             sort.on('click', function (e) {
-                var grp = recurse_parent($(e.target), 'page-id')
+                let grp = recurse_parent($(e.target), 'page-id')
 
-                var th = $(e.target).closest('th')
-                var i = th.find('i')
-                var asc = true
-                var cn = ''
+                let th = $(e.target).closest('th')
+                let i = th.find('i')
+                let asc = true
+                let cn = ''
 
                 if (i.hasClass('fa-chevron-up')) {
                     i.removeClass('fa-chevron-up')
@@ -1528,7 +1549,7 @@ function render_grid_parent(ctl, parent, page) {
                     i.hide()
 
                 } else {
-                    var thead = $(e.target).closest('thead')
+                    let thead = $(e.target).closest('thead')
                     thead.find('i').removeClass('fa-chevron-down')
                     thead.find('i').removeClass('fa-chevron-up')
                     thead.find('i').hide()
@@ -1549,7 +1570,7 @@ function render_grid_parent(ctl, parent, page) {
                 })
             })
 
-            var i = $(`<i class="fas"></i>`)
+            let i = $(`<i class="fas"></i>`)
             i.css("padding-left", "5px")
             i.css("font-size", ".75em")
             i.appendTo(th)
@@ -1565,7 +1586,7 @@ function render_grid_parent(ctl, parent, page) {
         }
     }
 
-    var tbody = grp.find("tbody")
+    let tbody = grp.find("tbody")
 
     tbody.on('click', function (e) {
         if ($(e.target).prop('tagName') == "INPUT") // switch to change event
@@ -1574,12 +1595,12 @@ function render_grid_parent(ctl, parent, page) {
         if ($(e.target).prop('tagName') == "A") // open record
             return
 
-        var grp = recurse_parent($(e.target), 'ctl-id')
-        var row = recurse_parent($(e.target), 'data-index')
+        let grp = recurse_parent($(e.target), 'ctl-id')
+        let row = recurse_parent($(e.target), 'data-index')
         if (!row) return
 
-        var inp = row.find('.table-row-selector').find('input')
-        var c = !inp.prop('checked')
+        let inp = row.find('.table-row-selector').find('input')
+        let c = !inp.prop('checked')
         toggle_grid_select(grp, false)
         toggle_row_select(row, c)
         send_selection(grp)
@@ -1587,14 +1608,14 @@ function render_grid_parent(ctl, parent, page) {
 }
 
 function render_subpage_parent(ctl, parent, page) {
-    var grp = $(`<div>`)
+    let grp = $(`<div>`)
     grp.attr('ctl-id', ctl['id'])
     grp.prop('is-subpage', 1)
     grp.appendTo(parent)
 }
 
 function render_group_parent(ctl, parent, page) {
-    var grp = $(`
+    let grp = $(`
         <div class="card">
             <div class="card-header">
                 <h3 class="card-title"></h3>
@@ -1613,7 +1634,7 @@ function render_group_parent(ctl, parent, page) {
         grp.addClass('card-light')
 
     if (ctl['collapsible']) {
-        var tools = $(`
+        let tools = $(`
             <div class="card-tools">
                 <button type="button" class="btn btn-tool" data-card-widget="collapse">
                     <i class="fas fa-minus"></i>
@@ -1629,12 +1650,12 @@ function render_group_parent(ctl, parent, page) {
     grp.appendTo(parent)
     grp.find('.card-title').html(ctl['caption'])
     grp.find('.card-title').addClass('text' + size_to_suffix(ctl['fontSize']))
-    var body = grp.find('.card-body')
+    let body = grp.find('.card-body')
 
-    var actions = []
+    let actions = []
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Html')
             render_html_parent(ctl2, body, page)
@@ -1651,18 +1672,18 @@ function render_group_parent(ctl, parent, page) {
     }
 
     if (actions.length > 0) {
-        var foot = $(`<div class="card-footer">`)
+        let foot = $(`<div class="card-footer">`)
         foot.appendTo(grp)
 
-        for (var c in actions)
+        for (let c in actions)
             render_button_parent(actions[c], foot, page)
     }
 }
 
 function render_checkbox(ctl, parent, page, schema) {
-    var grp = $(`<div class="form-check" style='height: 30px'>`)
+    let grp = $(`<div class="form-check" style='height: 30px'>`)
 
-    var inp = $(`<input type="checkbox" class="form-check-input">`)
+    let inp = $(`<input type="checkbox" class="form-check-input">`)
     inp.appendTo(grp)
     inp.attr('bind-codename', ctl['codename'])
     inp.prop('ctl-type', ctl['controlType'])
@@ -1694,7 +1715,7 @@ function render_checkbox(ctl, parent, page, schema) {
         })
     })
 
-    var lab = $(`<label class="form-check-label">`)
+    let lab = $(`<label class="form-check-label">`)
     lab.attr('for', ctl['id'])
     lab.html(ctl['caption'])
     lab.appendTo(grp)
@@ -1708,11 +1729,11 @@ function render_select(ctl, parent, page, schema) {
         return
     }
 
-    var sel = $(`<select class="form-control custom-select-sm">`)
+    let sel = $(`<select class="form-control custom-select-sm">`)
     sel.css('font-size', '.875rem')
 
-    for (var i in schema['options']) {
-        var opt = $(`<option>`)
+    for (let i in schema['options']) {
+        let opt = $(`<option>`)
         opt.attr('value', schema['options'][i]['value'])
         opt.html(schema['options'][i]['caption'])
         opt.appendTo(sel)
@@ -1751,8 +1772,147 @@ function render_select(ctl, parent, page, schema) {
     sel.appendTo(parent)
 }
 
+function render_select_ext(ctl, parent, page, schema) {
+    if (ctl['readOnly']) {
+        render_input(ctl, parent, page, schema)
+        return
+    }
+
+    function do_search(query, callback) {
+        rpc_post({
+            'type': 'request',
+            'objectid': sel.attr('page-id'),
+            'method': 'ControlInvoke',
+            'arguments': {
+                'controlid': sel.attr('ctl-id'),
+                'method': 'GetValues',
+                'args': {
+                    'text': query
+                }
+            }
+        }, function (r) {
+            let data = []
+
+            if (r)
+                for (let i = 0; i < r.length; i++) {
+                    let item = {}
+
+                    item['query'] = query
+                    item['value'] = r[i]["value"]
+                    if (r[i]["hasFormat"])
+                        item['caption'] = r[i]["fvalue"]
+                    else
+                        item['caption'] = r[i]["value"]
+                    item['display'] = r[i]["display"]
+
+                    data.push(item)
+                }
+
+            callback(data)
+        })
+    }
+
+    function do_validate(sel, value) {
+        if (sel.prop('x-value') === value)
+            return
+
+        rpc_post({
+            'type': 'request',
+            'objectid': sel.attr('page-id'),
+            'method': 'ControlInvoke',
+            'arguments': {
+                'controlid': sel.attr('ctl-id'),
+                'method': 'Validate',
+                'args': {
+                    'value': value,
+                    'parseValue': false
+                }
+            }
+        }, function (r) {
+            if (!r) {
+                sel[0].selectize.setTextboxValue('')
+                sel.prop('_opened', false)
+            }
+        })
+    }
+
+    function load_data(sel, data) {
+        let val = sel[0].selectize.getValue()
+
+        sel[0].selectize.clear(true)
+        sel[0].selectize.clearOptions(true)
+        sel[0].selectize.addOption(data)
+        sel[0].selectize.setValue(val, true)
+        sel[0].selectize.refreshOptions(true)
+        sel.prop('_opened', true)
+    }
+
+    let sel = $(`<select class="form-control form-control-sm">`)
+    sel.appendTo(parent)
+    sel.selectize({
+        valueField: "value",
+        labelField: "caption",
+        searchField: "query",
+        allowEmptyOption: true,
+        create: false,
+        render: {
+            item: function (i, e) {
+                let sel = $(`<div>`)
+                sel.html(i.caption)
+                return sel.prop('outerHTML')
+            },
+            option: function (i, e) {
+                let row = $(`<div class='row'>`)
+                row.css('padding', '4px')
+                if (i["display"]) {
+                    for (let j = 0; j < i["display"].length; j++) {
+                        let col = $(`<div class='col'>`)
+                        col.html(i["display"][j])
+                        col.appendTo(row)
+                    }
+                }
+                return row.prop('outerHTML')
+            }
+        },
+        onDropdownOpen: function () {
+            if (!sel.prop('_opened')) {
+                this.close()
+                let val = sel[0].selectize.getValue()
+                do_search(val, function (data) { load_data(sel, data) })
+            }
+        },
+        load: function (query, callback) {
+            sel[0].selectize.clearOptions()
+            do_search(query, callback)
+        },
+        onChange: function (value) {
+            do_validate(sel, value)
+            if (value == '')
+                do_search("", function (data) { load_data(sel, data) })
+        }
+    })
+
+    sel[0].selectize["$control_input"].on('change', function (e) {
+        let val = sel[0].selectize.getTextboxValue()
+        if (sel[0].selectize.isOpen && (val == ''))
+            do_search("", function (data) { load_data(sel, data) })
+        else if (!sel[0].selectize.isOpen)
+            do_validate(sel, val)
+    })
+
+    sel.prop('is-select-ext', true)
+    sel.attr('bind-codename', ctl['codename'])
+    sel.prop('ctl-type', ctl['controlType'])
+    sel.attr('ctl-id', ctl['id'])
+    sel.attr('page-id', page['id'])
+    sel.attr('id', ctl['id'])
+    sel.on('focus', function (e) {
+        client_status['last_focus'] = $(e.target)
+    })
+}
+
 function render_input_html(ctl, parent, page, schema) {
-    var inp = null
+    let inp = null
 
     if (ctl['readOnly']) {
         inp = $(`<div>`)
@@ -1771,7 +1931,7 @@ function render_input_html(ctl, parent, page, schema) {
 }
 
 function render_input(ctl, parent, page, schema) {
-    var inp = $(`<input class="form-control" role="presentation">`)
+    let inp = $(`<input class="form-control" role="presentation">`)
     inp.addClass("form-control" + size_to_suffix(ctl["fontSize"]))
 
     if (page['pageType'] != "Login")
@@ -1816,7 +1976,7 @@ function render_input(ctl, parent, page, schema) {
     if (ctl['placeholder'])
         inp.attr("placeholder", ctl["caption"])
 
-    var group = null
+    let group = null
     if (schema["fieldType"] == "DATE") {
         group = $(`<div class="input-group date" data-target-input="nearest">`)
         group.attr('id', ctl['id'] + '-group')
@@ -1825,7 +1985,7 @@ function render_input(ctl, parent, page, schema) {
         inp.appendTo(group)
         group.appendTo(parent)
 
-        var tgl = $(`
+        let tgl = $(`
             <div class="input-group-append" data-toggle="datetimepicker">
                 <div class="input-group-text"><i class="fas fa-calendar-days"></i></div>
             </div>
@@ -1844,11 +2004,11 @@ function render_input(ctl, parent, page, schema) {
 }
 
 function render_field_parent(ctl, parent, page, ctlParent) {
-    var schema = get_schema_field(page, ctl['codename'])
+    let schema = get_schema_field(page, ctl['codename'])
 
-    var newRow = true
+    let newRow = true
 
-    var row = parent.children(':last-child')
+    let row = parent.children(':last-child')
     if (row.length > 0) {
         if ((ctlParent['labelStyle'] == 'Horizontal') && (ctlParent['fieldPerRow'] == 'Two'))
             if (row.prop('ctl-count') == 1)
@@ -1867,7 +2027,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         row.prop('ctl-count', 2)
     }
 
-    var grp = $('<div class="form-group">')
+    let grp = $('<div class="form-group">')
     grp.css('margin-bottom', '0px')
 
     if (ctlParent['labelStyle'] == 'Horizontal')
@@ -1878,7 +2038,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         grp.addClass("col-sm-6")
     grp.appendTo(row)
 
-    var hasLabel = true
+    let hasLabel = true
     if (schema["fieldType"] == "BOOLEAN")
         hasLabel = false
     if (!ctl['showCaption'])
@@ -1887,7 +2047,7 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         hasLabel = false
 
     if (hasLabel) {
-        var label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
+        let label = $(`<label class="col-form-label font-weight-normal" style="padding-top: 0px"></label>`)
         label.attr('for', ctl['id'])
         if (ctlParent['labelStyle'] == 'Horizontal')
             label.addClass('col-4')
@@ -1899,32 +2059,35 @@ function render_field_parent(ctl, parent, page, ctlParent) {
         label.appendTo(grp)
     }
 
-    var field = $(`<div />`)
+    let field = $(`<div />`)
     if ((ctlParent['labelStyle'] == 'Horizontal') && hasLabel)
         field.addClass('col-8')
     else
         field.addClass('col-12')
 
-    if (schema["fieldType"] == "OPTION")
-        render_select(ctl, field, page, schema)
-    else if (schema["fieldType"] == "BOOLEAN")
-        render_checkbox(ctl, field, page, schema)
-    else if (ctl['inputType'] == "Html")
-        render_input_html(ctl, field, page, schema)
+    if (schema["hasRelations"])
+        render_select_ext(ctl, field, page, schema)
     else
-        render_input(ctl, field, page, schema)
+        if (schema["fieldType"] == "OPTION")
+            render_select(ctl, field, page, schema)
+        else if (schema["fieldType"] == "BOOLEAN")
+            render_checkbox(ctl, field, page, schema)
+        else if (ctl['inputType'] == "Html")
+            render_input_html(ctl, field, page, schema)
+        else
+            render_input(ctl, field, page, schema)
 
     field.appendTo(grp)
 }
 
 function render_html_parent(ctl, parent, page) {
-    var div = $(`<div></div>`)
+    let div = $(`<div></div>`)
     div.html(ctl['content'])
     parent.append(div)
 }
 
 function render_button_parent(ctl, parent, page) {
-    var bnt = $(`
+    let bnt = $(`
         <div class="btn-group">
             <button type="button" class="btn btn-default"></button>
         </div>
@@ -1937,7 +2100,7 @@ function render_button_parent(ctl, parent, page) {
     if (parent.hasClass('card-footer')) {
         bnt.addClass('float-right')
 
-        var space = $(`<span>`)
+        let space = $(`<span>`)
         space.html('&nbsp;')
         space.addClass('float-right')
         space.appendTo(parent)
@@ -1951,12 +2114,12 @@ function render_button_parent(ctl, parent, page) {
         })
     else
         bnt.on('click', function (e) {
-            var a = recurse_parent($(e.target), 'ctl-id')
+            let a = recurse_parent($(e.target), 'ctl-id')
             action_trigger(a)
         })
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_button_button(ctl2, bnt, page)
@@ -1964,37 +2127,37 @@ function render_button_parent(ctl, parent, page) {
 }
 
 function render_button_button(ctl, parent, page) {
-    var btnpar = parent.children('button')
+    let btnpar = parent.children('button')
     btnpar.addClass('dropdown-toggle')
     btnpar.attr('data-toggle', 'dropdown')
 
     parent.off('click')
 
-    var div = parent.children('.dropdown-menu')
+    let div = parent.children('.dropdown-menu')
     if (div.length == 0) {
         div = $(`<div class="dropdown-menu"></div>`)
         parent.append(div)
     }
 
-    var a = $(`<a class="dropdown-item" href="javascript:;"></a>`)
+    let a = $(`<a class="dropdown-item" href="javascript:;"></a>`)
     a.html(ctl['caption'])
     a.attr('ctl-id', ctl['id'])
     a.attr('page-id', page['id'])
     a.appendTo(div)
 
     a.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
 }
 
 function render_actiongroup_parent(ctl, parent, page) {
-    var row = $(`<div>`)
+    let row = $(`<div>`)
     row.addClass("row")
     row.appendTo(parent)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_actiongroup(ctl2, row, page)
@@ -2002,7 +2165,7 @@ function render_actiongroup_parent(ctl, parent, page) {
 }
 
 function render_action_actiongroup(ctl, parent, page) {
-    var a = $(`<a>`)
+    let a = $(`<a>`)
     a.addClass("btn")
     a.addClass("btn-app")
     a.appendTo(parent)
@@ -2010,17 +2173,17 @@ function render_action_actiongroup(ctl, parent, page) {
     a.attr('page-id', page['id'])
     a.attr('id', ctl['id'])
     a.on('click', function (e) {
-        var a2 = recurse_parent($(e.target), 'ctl-id')
+        let a2 = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a2)
     })
 
     if (ctl['icon']) {
-        var i = $(`<i>`)
+        let i = $(`<i>`)
         i.addClass(ctl['icon'])
         i.appendTo(a)
     }
 
-    var s = $(`<span>`)
+    let s = $(`<span>`)
     s.html(ctl['caption'])
     s.appendTo(a)
 }
@@ -2031,10 +2194,10 @@ function render_action_actiongroup(ctl, parent, page) {
  */
 
 function render_actionarea_content(ctl, page) {
-    var mnu = $("#menu-left")
+    let mnu = $("#menu-left")
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_actionarea_content(ctl2, mnu, page)
@@ -2042,7 +2205,7 @@ function render_actionarea_content(ctl, page) {
 }
 
 function render_action_actionarea_content(ctl, parent, page) {
-    var li = $(`
+    let li = $(`
         <li class="nav-item">
             <a href="javascript:;" class="nav-link">
                 <i></i>
@@ -2057,13 +2220,13 @@ function render_action_actionarea_content(ctl, parent, page) {
     li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     li.appendTo(parent)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_action_content(ctl2, ctl, page)
@@ -2071,17 +2234,17 @@ function render_action_actionarea_content(ctl, parent, page) {
 }
 
 function render_action_action_content(ctl, parent, page) {
-    var par = $('#' + parent['id'])
+    let par = $('#' + parent['id'])
     par.off('click')
-    var level = par.prop('menu-level') * 1 + 1
+    let level = par.prop('menu-level') * 1 + 1
 
-    var a = par.children('a')
+    let a = par.children('a')
     a.attr('data-toggle', 'dropdown')
     a.attr('aria-expanded', false)
     a.attr('aria-haspopup', true)
     a.addClass('dropdown-toggle')
 
-    var ul = par.children('ul')
+    let ul = par.children('ul')
     if (ul.length == 0) {
         ul = $(`<ul class="dropdown-menu border-0 shadow"></ul>`)
         par.append(ul)
@@ -2095,7 +2258,7 @@ function render_action_action_content(ctl, parent, page) {
         par.addClass('dropdown-hover')
     }
 
-    var li = $(`
+    let li = $(`
         <li>
             <a href="javascript:;" class="dropdown-item">
                 <i></i>
@@ -2110,13 +2273,13 @@ function render_action_action_content(ctl, parent, page) {
     li.attr('ctl-id', ctl['id'])
     li.attr('page-id', page['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     ul.append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_action_content(ctl2, ctl, page)
@@ -2129,19 +2292,19 @@ function render_action_action_content(ctl, parent, page) {
  */
 
 function render_actionarea_card(ctl, parent, page) {
-    var title = parent.find('.card-tools')
+    let title = parent.find('.card-tools')
 
-    var a = $(`<div class="card-tools"></div>`)
+    let a = $(`<div class="card-tools"></div>`)
     a.css('float', 'left')
     parent.append(a)
 
-    var ul = $(`<ul class="navbar-nav"></ul>`)
+    let ul = $(`<ul class="navbar-nav"></ul>`)
     ul.css('display', 'inline-block')
     ul.css('padding', '0px')
     ul.prependTo(a)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_actionarea_content(ctl2, ul, page)
@@ -2159,12 +2322,12 @@ function render_actionarea_card(ctl, parent, page) {
  */
 
 function render_actiongroup_navigationpane(ctl, page) {
-    var li = $(`<li class="nav-header"></li>`)
+    let li = $(`<li class="nav-header"></li>`)
     li.html(ctl['caption'])
     $('#sidemenu').append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_navigationpane(ctl2, page)
@@ -2172,7 +2335,7 @@ function render_actiongroup_navigationpane(ctl, page) {
 }
 
 function render_action_navigationpane(ctl, page) {
-    var li = $(`
+    let li = $(`
         <li class="nav-item">
             <a href="javascript:;" class="nav-link">
                 <i class="nav-icon"></i>
@@ -2189,13 +2352,13 @@ function render_action_navigationpane(ctl, page) {
     li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     $('#sidemenu').append(li)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_action_navigationpane(ctl2, ctl, page)
@@ -2203,19 +2366,19 @@ function render_action_navigationpane(ctl, page) {
 }
 
 function render_action_action_navigationpane(ctl, parent, page) {
-    var parent = $('#' + parent['id'])
-    parent.off('click')
+    let cparent = $('#' + parent['id'])
+    cparent.off('click')
 
-    var ul = parent.children('ul')
+    let ul = cparent.children('ul')
     if (ul.length == 0) {
         ul = $(`
             <ul class="nav nav-treeview">
         `)
-        ul.appendTo(parent)
+        ul.appendTo(cparent)
     }
 
-    var p = parent.children('a').children('p')
-    var img = p.children('i')
+    let p = cparent.children('a').children('p')
+    let img = p.children('i')
     if (img.length == 0) {
         img = $(`
             <i class="fas fa-angle-left right"></i>
@@ -2223,7 +2386,7 @@ function render_action_action_navigationpane(ctl, parent, page) {
         img.appendTo(p)
     }
 
-    var li = $(`
+    let li = $(`
         <li class="nav-item">
             <a href="javascript:;" class="nav-link">
                 <i class="nav-icon"></i>
@@ -2240,13 +2403,13 @@ function render_action_action_navigationpane(ctl, parent, page) {
     li.attr('page-id', page['id'])
     li.attr('id', ctl['id'])
     li.on('click', function (e) {
-        var a = recurse_parent($(e.target), 'ctl-id')
+        let a = recurse_parent($(e.target), 'ctl-id')
         action_trigger(a)
     })
     li.appendTo(ul)
 
-    for (var c in ctl['controls']) {
-        var ctl2 = ctl['controls'][c]
+    for (let c in ctl['controls']) {
+        let ctl2 = ctl['controls'][c]
 
         if (ctl2['controlType'] == 'Action')
             render_action_action_navigationpane(ctl2, ctl, page)
@@ -2289,10 +2452,10 @@ function action_trigger(obj) {
 }
 
 function handle_download(obj) {
-    var data = 'data:' + obj['mimeType'] + ';base64,' + obj['b64content']
+    let data = 'data:' + obj['mimeType'] + ';base64,' + obj['b64content']
     fetch(data).then((response) => response.blob()).then((blob) => {
-        var url = URL.createObjectURL(blob)
-        var a = $(`<a>`)
+        let url = URL.createObjectURL(blob)
+        let a = $(`<a>`)
         if (obj['fileName'])
             a.attr("download", obj['fileName'])
         else
@@ -2332,7 +2495,7 @@ function recurse_parent(obj, attr) {
  */
 
 function show_error(obj) {
-    var div = $(`
+    let div = $(`
     <div class="modal fade" data-backdrop="static">
         <div class="modal-dialog modal-lg">
             <div class="modal-content">
@@ -2359,8 +2522,8 @@ function show_error(obj) {
     div.find('#ok').html('OK')
     div.prop('modal-id', uuidv4())
 
-    var trace = ''
-    for (var t in obj['trace'])
+    let trace = ''
+    for (let t in obj['trace'])
         trace += obj['trace'][t] + '<br/>'
     div.find('#stack').html(trace)
 
@@ -2384,7 +2547,7 @@ function show_error(obj) {
 function core_initialize() {
     $('body').prop("pageType", '')
 
-    var psrc = new URLSearchParams(window.location.search)
+    let psrc = new URLSearchParams(window.location.search)
 
     rpc_post({
         'type': 'request',
@@ -2412,7 +2575,7 @@ function poll() {
 }
 
 function remove_wrappers() {
-    var fc = $('body').children().first()
+    let fc = $('body').children().first()
     if (fc.prop('tagName') != 'SCRIPT')
         fc.remove()
 }
@@ -2420,7 +2583,7 @@ function remove_wrappers() {
 function show_page() {
     remove_wrappers()
 
-    var bw = $(`
+    let bw = $(`
         <div class="wrapper">
             <nav class="main-header navbar navbar-expand-md navbar-light navbar-white">
                 <div class="container">
@@ -2467,7 +2630,7 @@ function show_page() {
 function show_start() {
     remove_wrappers()
 
-    var bw = $(`
+    let bw = $(`
         <div class="wrapper">
             <div class="preloader flex-column justify-content-center align-items-center">
                 <img class="animation__shake" src="public/client/logo60.png" height="60" width="60">
@@ -2537,12 +2700,12 @@ function show_start() {
     $('#indicator').css('display', 'none')
 
     // brand logo
-    var img1 = $(`<img src='public/client/logo250w.png' class='brand-image'>`)
+    let img1 = $(`<img src='public/client/logo250w.png' class='brand-image'>`)
     img1.css('margin-left', '8px')
     img1.on('error', function (e) {
         $(e.target).hide()
 
-        var img2 = $(`<img src='public/client/logo30w.png' class='brand-image'>`)
+        let img2 = $(`<img src='public/client/logo30w.png' class='brand-image'>`)
         img2.css('margin-left', '8px')
         img2.on('error', function (e) {
             $(e.target).hide()
@@ -2558,7 +2721,7 @@ function show_start() {
 function show_login() {
     remove_wrappers()
 
-    var bw = $(`
+    let bw = $(`
         <div class="wrapper">
             <div class="content-wrapper">
                 <div class="content-header">
@@ -2589,7 +2752,7 @@ function show_login() {
     $('#indicator').css('display', 'none')
 
     // login logo
-    var img1 = $(`<img src='public/client/logo300.png'>`)
+    let img1 = $(`<img src='public/client/logo300.png'>`)
     img1.on('error', function (e) {
         $(e.target).hide()
     })
