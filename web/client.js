@@ -1792,6 +1792,11 @@ function render_select_ext(ctl, parent, page, schema) {
             }
         }, function (r) {
             let data = []
+            data.push({
+                query: query,
+                value: " ",
+                caption: " "
+            })
 
             if (r)
                 for (let i = 0; i < r.length; i++) {
@@ -1853,7 +1858,8 @@ function render_select_ext(ctl, parent, page, schema) {
         valueField: "value",
         labelField: "caption",
         searchField: "query",
-        allowEmptyOption: true,
+        selectOnTab: true,
+        maxItems: 1,
         create: false,
         render: {
             item: function (i, e) {
@@ -1870,6 +1876,10 @@ function render_select_ext(ctl, parent, page, schema) {
                         col.html(i["display"][j])
                         col.appendTo(row)
                     }
+                } else {
+                    let col = $(`<div class='col'>`)
+                    col.html("&nbsp;")
+                    col.appendTo(row)
                 }
                 return row.prop('outerHTML')
             }
