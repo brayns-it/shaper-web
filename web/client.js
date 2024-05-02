@@ -21,7 +21,8 @@ function uuidv4() {
 
 let _ws = null
 let _ws_init_queue = []
-let _ws_callbacks = {}
+let _ws_suc_callbacks = {}
+let _ws_err_callbacks = {}
 let _network_error = false
 let _req_id = 1
 
@@ -39,7 +40,7 @@ function rpc_cancel() {
     _ws.send(jReq)
 }
 
-function rpc_post(request, callback) {
+function rpc_post(request, success, error) {
     if (_ws == null) {
         let uri = (window.location.protocol.toLowerCase().indexOf("https") > -1) ? "wss://" : "ws://"
         uri += window.location.host + "/rpc"
@@ -70,10 +71,18 @@ function rpc_post(request, callback) {
             let msg = JSON.parse(e.data)
 
             if (msg["requestid"]) {
-                let cb = _ws_callbacks[msg["requestid"]]
-                if (cb) {
-                    delete _ws_callbacks[msg["requestid"]]
-                    cb(msg["value"])
+                let suc = _ws_suc_callbacks[msg["requestid"]]
+                if (suc) {
+                    delete _ws_suc_callbacks[msg["requestid"]]
+                    if (msg['type'] == 'response') 
+                        suc(msg["value"])
+                }
+
+                let err = _ws_err_callbacks[msg["requestid"]]
+                if (err) {
+                    delete _ws_err_callbacks[msg["requestid"]]
+                    if (msg['type'] == 'exception')
+                        err()
                 }
             }
 
@@ -87,8 +96,11 @@ function rpc_post(request, callback) {
     let jReq = JSON.stringify(request, null, 2)
     debug_log("SEND\r\n" + jReq)
 
-    if (callback)
-        _ws_callbacks[_req_id] = callback
+    if (success)
+        _ws_suc_callbacks[_req_id] = success
+
+    if (error)
+        _ws_err_callbacks[_req_id] = error
 
     if (_ws.readyState == 0)
         _ws_init_queue.push(jReq)
@@ -305,7 +317,7 @@ function handle_data(obj) {
                         ctl.prop('x-value', value)
 
                     } else if (tag == 'SELECT') {
-                        ctl.val(value)
+                        ctl[0].selectize.setValue(value, true)
                         ctl.prop('x-value', value)
 
                     } else if (tag == 'DIV') {
@@ -592,6 +604,8 @@ function close_page(pageid) {
 
 function redraw_control(obj) {
     let ctl = $('[ctl-id="' + obj['id'] + '"]').first()
+    let idx = ctl.index()
+    let parent = ctl.parent()
     ctl.remove()
 
     let args = ctl.prop('render-args')
@@ -601,6 +615,12 @@ function redraw_control(obj) {
     let arg3 = (args.length > 3) ? args[3] : null
 
     window[ctl.prop('render-function')](obj, arg0, arg1, arg2, arg3)
+
+    ctl = $('[ctl-id="' + obj['id'] + '"]').first()
+    if (ctl.index() != idx) {
+        let ctl2 = parent.children().eq(idx)
+        ctl2.before(ctl)
+    }
 }
 
 function run_page(obj) {
@@ -638,7 +658,8 @@ function run_page(obj) {
     }
 
     let pageRow = $('#' + obj['id'])
-    pageRow.find('input').first().trigger('focus')
+    let firstCtl = pageRow.find('input').first()
+    firstCtl.trigger('focus')
 
     let head = $('.content-wrapper').find('.content-header').find('.container-fluid')
     if (obj['showHeader'])
@@ -900,7 +921,6 @@ function render_field_detail(ctl, parent, page, ctlParent) {
     let row = $(`<div>`)
     row.addClass("row")
     row.appendTo(parent)
-
 
     let label = $(`<div class="col-form-label font-weight-normal" style="padding-top: 0px" />`)
     label.addClass('col-sm')
@@ -1709,9 +1729,8 @@ function render_checkbox(ctl, parent, page, schema) {
                     'parseValue': false
                 }
             }
-        }, function (r) {
-            if (!r)
-                $(e.target).prop('checked', $(e.target).prop('x-value'))
+        }, null, function () {
+            $(e.target).prop('checked', $(e.target).prop('x-value'))
         })
     })
 
@@ -1733,9 +1752,12 @@ function render_select(ctl, parent, page, schema) {
     sel.css('font-size', '.875rem')
 
     for (let i in schema['options']) {
-        let opt = $(`<option>`)
+        let opt = $(`<option class='selectize-option'>`)
         opt.attr('value', schema['options'][i]['value'])
-        opt.html(schema['options'][i]['caption'])
+        if (schema['options'][i]['caption'])
+            opt.html(schema['options'][i]['caption'])
+        else
+            opt.html('&nbsp;')
         opt.appendTo(sel)
     }
 
@@ -1747,29 +1769,36 @@ function render_select(ctl, parent, page, schema) {
     sel.on('focus', function (e) {
         client_status['last_focus'] = $(e.target)
     })
-    sel.on('change', function (e) {
-        if ($(e.target).prop('x-value') === $(e.target).val())
-            return
-
-        rpc_post({
-            'type': 'request',
-            'objectid': $(e.target).attr('page-id'),
-            'method': 'ControlInvoke',
-            'arguments': {
-                'controlid': $(e.target).attr('ctl-id'),
-                'method': 'Validate',
-                'args': {
-                    'value': $(e.target).val(),
-                    'parseValue': true
-                }
-            }
-        }, function (r) {
-            if (!r)
-                $(e.target).val($(e.target).prop('x-value'))
-        })
-    })
 
     sel.appendTo(parent)
+    sel.selectize({
+        openOnFocus: false,
+        onChange: function (value) {
+            if (value === '') {
+                sel[0].selectize.setValue(sel.prop('x-value'))
+                return
+            }
+
+            if (sel.prop('x-value') === value)
+                return
+
+            rpc_post({
+                'type': 'request',
+                'objectid': sel.attr('page-id'),
+                'method': 'ControlInvoke',
+                'arguments': {
+                    'controlid': sel.attr('ctl-id'),
+                    'method': 'Validate',
+                    'args': {
+                        'value': value,
+                        'parseValue': true
+                    }
+                }
+            }, null, function () {
+                sel[0].selectize.setValue(sel.prop('x-value'))
+            })
+        }
+    })
 }
 
 function render_select_ext(ctl, parent, page, schema) {
@@ -1833,11 +1862,9 @@ function render_select_ext(ctl, parent, page, schema) {
                     'parseValue': false
                 }
             }
-        }, function (r) {
-            if (!r) {
-                sel[0].selectize.setTextboxValue('')
-                sel.prop('_opened', false)
-            }
+        }, null, function () {
+            sel[0].selectize.setTextboxValue('')
+            sel.prop('_opened', false)
         })
     }
 
@@ -1861,6 +1888,7 @@ function render_select_ext(ctl, parent, page, schema) {
         selectOnTab: true,
         maxItems: 1,
         create: false,
+        openOnFocus: false,
         render: {
             item: function (i, e) {
                 let sel = $(`<div>`)
@@ -1940,6 +1968,51 @@ function render_input_html(ctl, parent, page, schema) {
     inp.appendTo(parent)
 }
 
+function render_input_textarea(ctl, parent, page, schema) {
+    let inp = $(`<textarea class="form-control" rows="10" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">`)
+    inp.addClass("form-control" + size_to_suffix(ctl["fontSize"]))
+
+    if (ctl['readOnly'])
+        inp.attr('readonly', true)
+
+    if (ctl['fontFixed'])
+        inp.css('font-family', 'monospace')
+
+    inp.attr('bind-codename', ctl['codename'])
+    inp.prop('ctl-type', ctl['controlType'])
+    inp.attr('ctl-id', ctl['id'])
+    inp.attr('id', ctl['id'])
+    inp.attr('page-id', page['id'])
+    inp.on('focus', function (e) {
+        client_status['last_focus'] = $(e.target)
+    })
+    inp.on('change', function (e) {
+        if ($(e.target).prop('x-value') === $(e.target).val())
+            return
+
+        rpc_post({
+            'type': 'request',
+            'objectid': $(e.target).attr('page-id'),
+            'method': 'ControlInvoke',
+            'arguments': {
+                'controlid': $(e.target).attr('ctl-id'),
+                'method': 'Validate',
+                'args': {
+                    'value': $(e.target).val(),
+                    'parseValue': true
+                }
+            }
+        }, null, function () {
+            $(e.target).val($(e.target).prop('x-value'))
+        })
+    })
+
+    if (ctl['placeholder'])
+        inp.attr("placeholder", ctl["caption"])
+
+    inp.appendTo(parent)
+}
+
 function render_input(ctl, parent, page, schema) {
     let inp = $(`<input class="form-control" role="presentation">`)
     inp.addClass("form-control" + size_to_suffix(ctl["fontSize"]))
@@ -1977,9 +2050,8 @@ function render_input(ctl, parent, page, schema) {
                     'parseValue': true
                 }
             }
-        }, function (r) {
-            if (!r)
-                $(e.target).val($(e.target).prop('x-value'))
+        }, null, function () {
+            $(e.target).val($(e.target).prop('x-value'))
         })
     })
 
@@ -2084,6 +2156,8 @@ function render_field_parent(ctl, parent, page, ctlParent) {
             render_checkbox(ctl, field, page, schema)
         else if (ctl['inputType'] == "Html")
             render_input_html(ctl, field, page, schema)
+        else if (ctl['inputType'] == "TextArea")
+            render_input_textarea(ctl, field, page, schema)
         else
             render_input(ctl, field, page, schema)
 

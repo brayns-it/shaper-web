@@ -5,6 +5,10 @@
     min-height: 0px;
 }
 
+.selectize-option {
+    font-size: .875rem;
+}
+
 .selectize-input.focus {
     box-shadow: none;
 }
