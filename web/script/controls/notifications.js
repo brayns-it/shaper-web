@@ -23,7 +23,18 @@
 
         if (c > 0)
             this.uiElement.find('[ctl-id="badge"]').html(c)
-        else
+        else {
             this.uiElement.find('[ctl-id="badge"]').html('')
+
+            var noNews = $(`
+                <div class="dropdown-divider"></div>
+                <a href="javascript:;" class="dropdown-item">
+                    <i></i><span></span>
+                </a>
+            `)
+
+            noNews.find('span').html(this.layout['emptyText'])
+            this.uiElement.find('.dropdown-menu').prepend(noNews)
+        }
     }
 }
