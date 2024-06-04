@@ -22,4 +22,8 @@
     <EmbeddedResource Include="web\**" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="NUglify" Version="1.21.7" />
+  </ItemGroup>
+
 </Project>

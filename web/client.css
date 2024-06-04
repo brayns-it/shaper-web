@@ -14,5 +14,7 @@
 }
 
 .table-row-selector {
-    width: 20px;
+    width: 8px;
+    max-width: 8px;
+    cursor: pointer;
 }
