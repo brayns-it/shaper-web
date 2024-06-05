@@ -25,7 +25,7 @@
 
         this.uiElement.find('.modal-title').html(this.layout['caption'])
         this.uiElement.appendTo('body')
-        this.uiElement.on('hidden.bs.modal', () => this.modalClose)
+        this.uiElement.on('hidden.bs.modal', () => this.modalClose())
 
         let sizeClass = 'modal-lg'
         if ((this.layout['unitType'] != "Brayns.Shaper.Systems.Confirm") && (this.layout['unitType'] != "Brayns.Shaper.Systems.Message") &&
@@ -43,14 +43,14 @@
         this.uiElement.modal('show')
         super.show()
 
-        this.uiElement.find('input').first().focus()
+        this.uiElement.find('input').first().trigger('focus')
     }
 
     modalClose() {
         super.close()
 
         if (Client.lastFocus)
-            Client.lastFocus.focus()
+            Client.lastFocus.trigger('focus')
 
     }
 
