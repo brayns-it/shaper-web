@@ -191,13 +191,15 @@
                     <div class="input-group-text"><i class="fas fa-calendar-days"></i></div>
                 </div>
             `)
-            tgl.attr("data-target", '#' + ctl['id'] + '-group')
+            tgl.attr("data-target", '#' + this.id + '-group')
             tgl.appendTo(group)
 
             group.datetimepicker({
-                locale: page['locale'],
+                locale: this.page.layout['locale'],
                 format: 'L'
             })
+
+            group.on('change.datetimepicker', () => this.validate())
         }
 
         if (!group)
