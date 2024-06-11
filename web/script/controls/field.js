@@ -211,6 +211,7 @@
         div.appendTo(this.uiParent)
 
         this.uiElement = $(`<input type="checkbox" class="form-check-input">`)
+        this.uiElement.attr('id', this.id)
         this.uiElement.appendTo(div)
         this.uiElement.on('focus', () => Client.lastFocus = this.uiElement)
         this.uiElement.on('change', () => this.validate())
