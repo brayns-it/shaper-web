@@ -1,4 +1,6 @@
 ﻿class PageContent extends PageBase {
+    scrollTop = null
+
     show() {
         Client.leaveFocus()
         Renderer.hideAllPages()

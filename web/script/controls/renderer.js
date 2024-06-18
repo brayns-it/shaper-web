@@ -253,16 +253,23 @@
     }
 
     static hideAllPages() {
+        let lastPage = null;
+        let st = $(window).scrollTop()
+
         for (let i = 0; i < Client.pageStack.length; i++) {
             let page = Client.pageStack[i]
             if (page.constructor.name == 'PageContent') {
                 page.uiElement.hide()
+                lastPage = page;
 
                 let menus = page.findItemsByProperty('isMenuAction', true)
                 for (let j = 0; j < menus.length; j++)
                     menus[j].uiElement.hide()
             }
         }
+
+        if (lastPage) 
+            lastPage.scrollTop = st
     }
 
     static showLastPage() {
@@ -270,6 +277,9 @@
             let page = Client.pageStack[i]
             if (page.constructor.name == 'PageContent') {
                 page.uiElement.show()
+
+                if (page.scrollTop)
+                    $(window).scrollTop(page.scrollTop)
 
                 let menus = page.findItemsByProperty('isMenuAction', true)
                 for (let j = 0; j < menus.length; j++)
@@ -353,7 +363,7 @@
                 break
         }
     }
-
+    
     static setPageCaption(obj) {
         let page = Client.getPageById(obj['pageid'])
         if (page) {
