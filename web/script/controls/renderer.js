@@ -297,11 +297,11 @@
 
     static showSidebar() {
         $('#control-sidebar-li').show()
-        $('#control-sidebar').ControlSidebar('show')
+        setTimeout(() => $('.control-sidebar').ControlSidebar('show'), 500)
     }
 
     static hideSidebar() {
-        $('#control-sidebar').ControlSidebar('collapse')
+        $('.control-sidebar').ControlSidebar('collapse')
         $('#control-sidebar-li').hide()
     }
 
