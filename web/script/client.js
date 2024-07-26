@@ -167,7 +167,7 @@
                 a.attr("target", '_blank')
             a.attr("href", url)
             a[0].click()
-            URL.revokeObjectURL(x)
+            URL.revokeObjectURL(url)
         })
     }
 
