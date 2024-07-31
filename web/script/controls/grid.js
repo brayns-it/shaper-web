@@ -1,54 +1,18 @@
 ﻿class ControlGrid extends ControlBase {
     columns = []
     count = 0
-    totalRows = 0
-    pageSize = 0
-    offset = 0
-    currPage = 0
+    limitRows = 0
     selection = []
     xSelection = []
     selColor = '#007bff'
 
-    requestData(where) {
-        let offset = 0
-
-        switch (where) {
-            case 'first':
-                offset = 0
-                break
-
-            case 'last':
-                offset = Math.floor(this.totalRows / this.pageSize) * this.pageSize
-                break
-
-            case 'next':
-                offset = this.currPage * this.pageSize
-                if (offset > this.totalRows)
-                    return
-                break
-
-            case 'previous':
-                offset = (this.currPage - 2) * this.pageSize
-                if (offset < 0)
-                    return
-                break
-
-            default:
-                let pageno = where * 1
-
-                offset = (pageno - 1) * this.pageSize
-                if (offset < 0)
-                    offset = 0
-                else if (offset > this.totalRows)
-                    offset = Math.floor(this.totalRows / this.pageSize) * this.pageSize
-        }
-
+    requestData(direction) {
         Client.rpcPost({
             'type': 'request',
             'objectid': this.page.id,
             'method': 'GetData',
             'arguments': {
-                'offset': offset
+                'direction': direction
             }
         })
     }
@@ -132,7 +96,6 @@
                         </div>
                         <div style="display: inline-block" ctl-id="pagination">
                             <div class="input-group input-group-sm">
-                                <input type="text" class="form-control" style="width: 50px" ctl-id="pageno">
                                 <div class="input-group-append">
                                     <button type="submit" class="btn btn-default" ctl-id="first">
                                         <i class="fas fa-backward-fast"></i>
@@ -181,9 +144,6 @@
         })
 
         this.uiElement.find('[ctl-id="searchBtn"]').on('click', () => this.requestSearch(searchBox.val()))
-
-        let pageno = this.uiElement.find('[ctl-id="pageno"]')
-        pageno.on('change', () => this.requestData(pageno.val()))
 
         let head = this.uiElement.find("thead").find("tr")
 
@@ -297,10 +257,7 @@
             this.count++
         }
 
-        this.offset = obj['offset']
-        this.totalRows = obj['count']
-        this.pageSize = obj['pageSize']
-        this.currPage = Math.floor(this.offset / this.pageSize) + 1
+        this.limitRows = obj['limitRows']
         this.togglePagination()
     }
 
@@ -389,15 +346,9 @@
             return
         }
 
-        let pages = Math.ceil(this.totalRows / this.pageSize)
-
-        if (pages <= 1)
+        if (this.count < this.limitRows)
             this.uiElement.find('[ctl-id="pagination"]').hide()
-
-        else {
+        else
             this.uiElement.find('[ctl-id="pagination"]').show()
-            this.uiElement.find('[ctl-id="pageno"]').val(this.currPage)
-
-        }
     }
 }
