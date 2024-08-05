@@ -207,7 +207,7 @@
         if (data.length == 0) {
             let nodata_row = $(`<tr><td></td></tr>`)
             let nodata = nodata_row.find('td')
-            nodata.attr("colspan", this.columns.length)
+            nodata.attr("colspan", this.columns.length + 1)
             nodata.html(this.layout['labelNodata'])
             nodata_row.appendTo(tbody)
         }
