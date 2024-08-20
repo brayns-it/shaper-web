@@ -9,25 +9,25 @@ namespace Brayns.Shaper
     {
         private static byte[]? _minClient;
 
-        private static string? _debugPath;
-        public static string? DebugPath
-        {
-            get { return _debugPath; }
-            set
-            {
-                _debugPath = value;
-                if (_debugPath != null)
-                {
-                    _debugPath = _debugPath.Replace("\\", "/");
-                    if (!_debugPath.EndsWith("/"))
-                        _debugPath += "/";
-                }
-            }
-        }
+        internal static string? SourcePath { get; set; }
 
         public static void MapShaperClient(this WebApplication app)
         {
             app.MapGet("/client/{**path}", Dispatch);
+
+#if DEBUG
+            foreach (string dn in Brayns.Shaper.Application.SourcesPath)
+            {
+                if (File.Exists(dn + "/ShaperWeb.csproj") && Directory.Exists(dn + "/web"))
+                {
+                    SourcePath = dn;
+                    SourcePath = SourcePath.Replace("\\", "/");
+                    if (!SourcePath.EndsWith("/")) SourcePath += "/";
+                    SourcePath += "web/";
+                    break;
+                }
+            }
+#endif
         }
 
         public static void MapShaperDefault(this WebApplication app)
@@ -42,9 +42,9 @@ namespace Brayns.Shaper
 
         private static Stream? GetContent(string path)
         {
-            if (DebugPath != null)
+            if (SourcePath != null)
             {
-                var fn = DebugPath + path;
+                var fn = SourcePath + path;
                 if (File.Exists(fn))
                     return new FileStream(fn, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
             }
@@ -64,9 +64,9 @@ namespace Brayns.Shaper
 
         private static Stream? GetClientScript()
         {
-            if (DebugPath != null)
+            if (SourcePath != null)
             {
-                DirectoryInfo di = new DirectoryInfo(DebugPath + "script");
+                DirectoryInfo di = new DirectoryInfo(SourcePath + "script");
                 if (di.Exists)
                 {
                     MemoryStream ms = new();
