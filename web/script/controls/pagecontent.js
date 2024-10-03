@@ -12,7 +12,7 @@
 
         super.show()
 
-        this.uiElement.find('input').first().focus()
+        this.uiElement.find('input').first().trigger('focus')
         Renderer.refreshTitle()
     }
     
@@ -22,10 +22,9 @@
 
         super.close()
 
-        if (Client.lastFocus)
-            Client.lastFocus.focus()
-
         Renderer.showLastPage()
         Renderer.refreshTitle()
+
+        Client.lastFocus.first().trigger('focus')
     }
 }

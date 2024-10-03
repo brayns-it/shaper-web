@@ -132,7 +132,7 @@
                         break
 
                     case 'focusControl':
-                        let ctl = $('[ctl-id="' + obj['controlId'] + '"]').first()
+                        let ctl = $('#' + obj['controlId']).first()
                         ctl.trigger('focus')
                         break
 
@@ -246,9 +246,12 @@
     }
 
     static isShortcut(evt) {
+        if ((evt.key == "F1") || (evt.key == "F2") || (evt.key == "F3") ||
+            (evt.key == "F4") || (evt.key == "F5") || (evt.key == "F6") ||
+            (evt.key == "F7") || (evt.key == "F8") || (evt.key == "F9") ||
+            (evt.key == "F10") || (evt.key == "F11") || (evt.key == "F12")) return true;
         if (evt.ctrlKey) return true
         if (evt.altKey) return true
-        if ((evt.key >= "F1") && (evt.key <= "F12")) return true
         if (evt.key.startsWith("Arrow")) return true
         if (evt.key == "Enter") return true
         if (evt.key == "NumpadEnter") return true

@@ -49,9 +49,7 @@
     modalClose() {
         super.close()
 
-        if (Client.lastFocus)
-            Client.lastFocus.trigger('focus')
-
+        Client.lastFocus.first().trigger('focus')
     }
 
     close() {

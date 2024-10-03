@@ -157,6 +157,7 @@
     renderInput() {
         this.uiElement = $(`<input class="form-control" role="presentation">`)
         this.uiElement.addClass("form-control" + Client.sizeToSuffix(this.layout["fontSize"]))
+        this.uiElement.attr('id', this.id)
 
         if (this.page.layout['pageType'] != "Login")
             this.uiElement.attr('autocomplete', 'new-password')

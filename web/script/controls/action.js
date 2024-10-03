@@ -84,9 +84,14 @@
             let space = $(`<span>`)
             space.html('&nbsp;')
             space.addClass('float-right')
-            space.appendTo(this.uiParent)
 
-            this.uiParent.append(this.uiElement)
+            if (this.parent.constructor.name == "ControlGroup") {
+                space.prependTo(this.uiParent)
+                this.uiParent.prepend(this.uiElement)
+            } else {
+                space.appendTo(this.uiParent)
+                this.uiParent.append(this.uiElement)
+            }
         }
     }
 
