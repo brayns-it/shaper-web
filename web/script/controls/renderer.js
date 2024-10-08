@@ -53,7 +53,7 @@
         $('body').css('min-height', '')
 
         // login logo
-        let img1 = $(`<img src='public/client/logo300.png'>`)
+        let img1 = $(`<img src='/public/client/logo300.png'>`)
         img1.on('error', (e) => {
             $(e.target).hide()
         })
@@ -64,7 +64,7 @@
         let wrap = $(`
             <div class="wrapper">
                 <div class="preloader flex-column justify-content-center align-items-center">
-                    <img class="animation__shake" src="public/client/logo60.png" height="60" width="60">
+                    <img class="animation__shake" src="/public/client/logo60.png" height="60" width="60">
                 </div>
 
                 <nav class="main-header navbar navbar-expand navbar-white navbar-light">
@@ -129,12 +129,12 @@
         $('body').css('min-height', '')
 
         // brand logo
-        let img1 = $(`<img src='public/client/logo250w.png' class='brand-image'>`)
+        let img1 = $(`<img src='/public/client/logo250w.png' class='brand-image'>`)
         img1.css('margin-left', '8px')
         img1.on('error', (e) => {
             $(e.target).hide()
 
-            let img2 = $(`<img src='public/client/logo30w.png' class='brand-image'>`)
+            let img2 = $(`<img src='/public/client/logo30w.png' class='brand-image'>`)
             img2.css('margin-left', '8px')
             img2.on('error', (e2) => {
                 $(e2.target).hide()

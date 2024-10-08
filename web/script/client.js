@@ -9,6 +9,7 @@
     static pageStack = []
     static applicationName = ""
     static lastFocus = null
+    static requestFullscreen = false
 
     static rpcCancel() {
         let jReq = JSON.stringify({
@@ -123,6 +124,14 @@
                             location.reload()
                         break
 
+                    case 'requestFullscreen':
+                        Client.requestFullscreen = true
+                        break
+
+                    case 'assertFocus':
+                        window.setInterval(Client.assertFocus, 1000)
+                        break
+
                     case 'navigate':
                         window.open(obj['url'], '_blank');
                         break
@@ -138,6 +147,12 @@
 
                 }
         }
+    }
+
+    static assertFocus() {
+        if (Client.lastFocus != null)
+            if (document.activeElement != Client.lastFocus)
+                Client.lastFocus.trigger('focus')
     }
 
     static handleCookie(obj) {
@@ -216,18 +231,18 @@
     }
 
     static initialize() {
-        let psrc = new URLSearchParams(window.location.search)
-
         Client.rpcPost({
             'type': 'request',
             'classname': 'Brayns.Shaper.Systems.ClientManagement',
             'method': 'Start',
             'arguments': {
-                'page': psrc.has('page') ? psrc.get('page') : ''
+                'pathname': window.location.pathname,
+                'search': window.location.search
             }
         })
 
         $(document).on('keydown', Client.handleShortcut)
+        $(window).on('hashchange', Client.handleHashChange)
 
         setTimeout(Client.poll, 1000);
     }
@@ -245,23 +260,7 @@
         })
     }
 
-    static isShortcut(evt) {
-        if ((evt.key == "F1") || (evt.key == "F2") || (evt.key == "F3") ||
-            (evt.key == "F4") || (evt.key == "F5") || (evt.key == "F6") ||
-            (evt.key == "F7") || (evt.key == "F8") || (evt.key == "F9") ||
-            (evt.key == "F10") || (evt.key == "F11") || (evt.key == "F12")) return true;
-        if (evt.ctrlKey) return true
-        if (evt.altKey) return true
-        if (evt.key.startsWith("Arrow")) return true
-        if (evt.key == "Enter") return true
-        if (evt.key == "NumpadEnter") return true
-        if (evt.key == "Escape") return true
-        return false
-    }
-
     static handleShortcut(evt) {
-        if (!Client.isShortcut(evt)) return
-
         let n = Client.pageStack.length
         if (n == 0) return
 
@@ -273,16 +272,28 @@
         if (evt.shiftKey) k += "Shift+"
         k += evt.key
 
+        if (page.shortcutMask.includes(k)) return;
+
         let ctls = page.findItemsByProperty('shortcut', k)
-        if (ctls.length > 0)
+        if (ctls.length > 0) {
             if (ctls[0].click) {
                 // assert validation of current field
-                Client.lastFocus.trigger('blur')
-                
+                if (Client.lastFocus != null)
+                    Client.lastFocus.trigger('blur')
+
                 ctls[0].click()
                 evt.preventDefault()
                 return false
             }
+        }
+        else
+            page.shortcutMask.push(k)
+    }
+
+    static handleHashChange(evt) {
+        var hash = "";
+        if (window.location.hash)
+            hash = window.location.hash.substring(1)
     }
 
     static setTitle(title) {

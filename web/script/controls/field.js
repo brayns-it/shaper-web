@@ -167,12 +167,13 @@
 
         if (this.layout['readOnly'])
             this.uiElement.attr('readonly', true)
+        else {
+            this.uiElement.on('focus', () => Client.lastFocus = this.uiElement)
+            this.uiElement.on('change', () => this.validate())
+        }
 
         this.getValue = () => { return this.uiElement.val() }
         this.setValue = (val) => { this.uiElement.val(val) }
-
-        this.uiElement.on('focus', () => Client.lastFocus = this.uiElement)
-        this.uiElement.on('change', () => this.validate())
 
         if (this.layout['placeholder'])
             this.uiElement.attr("placeholder", this.layout["caption"])
@@ -396,6 +397,10 @@
 
         if (this.layout['readOnly'])
             this.uiElement.attr('readonly', true)
+        else {
+            this.uiElement.on('focus', () => Client.lastFocus = this.uiElement)
+            this.uiElement.on('change', () => this.validate())
+        }
 
         if (this.layout['fontFixed'])
             this.uiElement.css('font-family', 'monospace')
@@ -405,9 +410,6 @@
 
         this.getValue = () => { return this.uiElement.val() }
         this.setValue = (val) => { this.uiElement.val(val) }
-
-        this.uiElement.on('focus', () => Client.lastFocus = this.uiElement)
-        this.uiElement.on('change', () => this.validate())
 
         this.uiElement.appendTo(this.uiParent)
     }

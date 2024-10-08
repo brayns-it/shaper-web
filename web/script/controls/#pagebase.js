@@ -1,5 +1,6 @@
 ﻿class PageBase extends ControlBase {
     onClose = null
+    shortcutMask = []
 
     show(include, exclude) {
         this.page = this

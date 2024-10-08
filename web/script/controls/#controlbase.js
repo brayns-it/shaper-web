@@ -37,6 +37,8 @@
             let ctl2 = this.uiElement.parent().children().eq(idx)
             ctl2.before(this.uiElement)
         }
+
+        this.page.shortcutMask = []
     }
 
     redrawShow() {

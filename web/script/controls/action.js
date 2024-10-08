@@ -5,6 +5,9 @@
     isMenuAction = false
 
     click() {
+        if (Client.requestFullscreen)
+            document.documentElement.requestFullscreen()
+
         if (this.onClick)
             this.onClick()
         else

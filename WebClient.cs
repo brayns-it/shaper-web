@@ -15,8 +15,15 @@ namespace Brayns.Shaper
         {
             app.MapGet("/client/{**path}", Dispatch);
 
+            foreach (var a in Application.ClientAccesses.Keys)
+            {
+                string pattern = a.Path;
+                if (!pattern.EndsWith("/")) pattern += "/";
+                app.MapGet(pattern + "{**path}", Dispatch);
+            }
+
 #if DEBUG
-            foreach (string dn in Brayns.Shaper.Application.SourcesPath)
+            foreach (string dn in Application.SourcesPath)
             {
                 if (File.Exists(dn + "/ShaperWeb.csproj") && Directory.Exists(dn + "/web"))
                 {
