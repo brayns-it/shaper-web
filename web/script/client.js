@@ -141,8 +141,11 @@
                         break
 
                     case 'focusControl':
-                        let ctl = $('#' + obj['controlId']).first()
-                        ctl.trigger('focus')
+                        let ctl = $('#' + obj['controlId'])
+                        if (ctl.length > 0) {
+                            Client.lastFocus = ctl
+                            ctl.first().trigger('focus')
+                        }
                         break
 
                 }
@@ -150,9 +153,13 @@
     }
 
     static assertFocus() {
-        if (Client.lastFocus != null)
-            if (document.activeElement != Client.lastFocus)
-                Client.lastFocus.trigger('focus')
+        if (Client.lastFocus != null) {
+            if (!Client.lastFocus.is(":visible"))
+                return
+
+            if (document.activeElement != Client.lastFocus[0])
+                Client.lastFocus.first().trigger('focus')
+        }
     }
 
     static handleCookie(obj) {
@@ -279,7 +286,7 @@
             if (ctls[0].click) {
                 // assert validation of current field
                 if (Client.lastFocus != null)
-                    Client.lastFocus.trigger('blur')
+                    Client.lastFocus.first().trigger('blur')
 
                 ctls[0].click()
                 evt.preventDefault()
