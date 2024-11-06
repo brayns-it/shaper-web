@@ -136,6 +136,13 @@
                         window.open(obj['url'], '_blank');
                         break
 
+                    case 'playSound':
+                        let url = obj['url']
+                        if (!url.includes("//")) url = '/public/client/' + url;
+                        var snd = new Audio(url);
+                        snd.play();
+                        break;
+
                     case 'download':
                         Client.handleDownload(obj)
                         break
