@@ -77,6 +77,9 @@
             if (!this.layout['color']) this.layout['color'] = 'default'
             this.uiElement.find('button').addClass('btn-' + this.layout['color'])
 
+            if (this.layout['disabled'])
+                this.uiElement.find('button').addClass('disabled')
+
             if (this.layout['isCancelation'])
                 this.uiElement.on('click', () => Client.rpcCancel())
             else
