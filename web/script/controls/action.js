@@ -80,10 +80,12 @@
             if (this.layout['disabled'])
                 this.uiElement.find('button').addClass('disabled')
 
-            if (this.layout['isCancelation'])
-                this.uiElement.on('click', () => Client.rpcCancel())
-            else
-                this.uiElement.on('click', () => this.click())
+            else {
+                if (this.layout['isCancelation'])
+                    this.uiElement.on('click', () => Client.rpcCancel())
+                else
+                    this.uiElement.on('click', () => this.click())
+            }
 
             this.uiElement.addClass('float-right')
 
