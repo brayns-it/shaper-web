@@ -39,6 +39,15 @@
         }
 
         this.page.shortcutMask = []
+
+        if (Client.lastFocus != null) {
+            let id = Client.lastFocus.attr('id')
+            let newCtl = $(`#` + id)
+            if (newCtl.length > 0) {
+                Client.lastFocus = newCtl
+                Client.lastFocus.first().trigger('focus')
+            }
+        }
     }
 
     redrawShow() {
