@@ -133,7 +133,10 @@
                         break
 
                     case 'navigate':
-                        window.open(obj['url'], '_blank');
+                        if (obj['newTarget'])
+                            window.open(obj['url'], '_blank')
+                        else
+                            location.href = obj['url']
                         break
 
                     case 'playSound':
