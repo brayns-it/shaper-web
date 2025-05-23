@@ -25,6 +25,7 @@
         Renderer.showLastPage()
         Renderer.refreshTitle()
 
-        Client.lastFocus.first().trigger('focus')
+        if (Client.lastFocus != null)
+            Client.lastFocus.first().trigger('focus')
     }
 }
